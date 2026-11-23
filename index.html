@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>LANKA LIFE — Open World Sri Lanka</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="c"></canvas>
+
+  <!-- Top Left: Location & Mission Banner -->
+  <div class="hud-panel" id="title-box">
+    <div class="brand">LANKA LIFE</div>
+    <div id="loc">Lanka Main Road</div>
+    <div id="mission-box">
+      <span class="badge">MISSION</span>
+      <span id="mission-text">Find a Tuk-Tuk and press [M] for Taxi Job</span>
+    </div>
+  </div>
+
+  <!-- Top Right: Money, Wanted/Respect & FPS -->
+  <div class="hud-panel" id="top-right">
+    <div id="cash">LKR 1,500</div>
+    <div id="time-display">10:30 AM</div>
+    <div id="fps">-- FPS</div>
+  </div>
+
+  <!-- Bottom Left: GTA-Style Radar Minimap & Controls -->
+  <div id="bottom-left">
+    <div id="radar-wrap">
+      <canvas id="minimap" width="160" height="160"></canvas>
+      <div id="radar-north">N</div>
+    </div>
+    <div class="hud-panel" id="help">
+      <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move / Drive   <kbd>SHIFT</kbd> Sprint</div>
+      <div><kbd>E</kbd> Enter/Exit Vehicle   <kbd>H</kbd> Horn   <kbd>M</kbd> Taxi Job</div>
+      <div><kbd>1</kbd> Pistol   <kbd>RMB</kbd> Aim   <kbd>LMB</kbd> Shoot   <kbd>R</kbd> Reload</div>
+    </div>
+  </div>
+
+  <!-- Center Prompts -->
+  <div id="interact">Press <kbd>E</kbd> to enter vehicle</div>
+  <div id="crosshair">+</div>
+  <div id="toast"></div>
+
+  <!-- Bottom Right: Player & Vehicle Status Bars -->
+  <div class="hud-panel" id="stats">
+    <div class="stat-row">
+      <span>HEALTH</span>
+      <div class="bar"><div id="hp-bar" style="width:100%"></div></div>
+    </div>
+    <div class="stat-row">
+      <span>STAMINA</span>
+      <div class="bar"><div id="stam-bar" style="width:100%"></div></div>
+    </div>
+    <div id="ammo">PISTOL: HOLSTERED</div>
+    <div id="speed">ON FOOT</div>
+  </div>
+
+  <!-- Start / Pause Overlay -->
+  <div id="ov">
+    <h1>LANKA LIFE</h1>
+    <p class="subtitle">SRI LANKA OPEN-WORLD SANDBOX</p>
+    <p id="ovt">
+      Explore a Sri Lankan town, drive iconic Tuk-Tuks & CTB Buses, run taxi drops for LKR cash, 
+      and test your aim at the practice range.<br><br>
+      <b>Controls:</b> WASD to Move/Drive • E to Enter/Exit • H for Horn • M for Taxi Mission • 1 + RMB/LMB to Shoot • ESC to Pause
+    </p>
+    <button id="go">PLAY GAME</button>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
