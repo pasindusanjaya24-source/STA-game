@@ -157,7 +157,7 @@ kbd {
   font-size: clamp(42px, 8vw, 78px); letter-spacing: 8px; font-weight: 900;
   color: var(--gold); text-shadow: 0 4px 0 var(--crimson), 0 10px 30px rgba(0,0,0,0.6);
 }
-.subtitle { letter-spacing: 4px; font-size: 13px; color: #86efac; font-weight: 700; margin-top: -6px; }
+.subtitle { letter-spacing: 4px; font-size: 22px; color: #86efac; font-weight: 700; margin-top: -6px; }
 #ov p#ovt { max-width: 560px; color: #e2e8f0; font-size: 14px; line-height: 1.75; margin: 8px 0; }
 #go {
   cursor: pointer; border: 0; color: #18181b;
