@@ -53,7 +53,7 @@ export function createPlayer(scene) {
 
   const blob = new THREE.Mesh(
     new THREE.CircleGeometry(0.55, 12).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.3, depthWrite: false })
+    new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.22, depthWrite: false })
   );
   blob.position.y = 0.14;
   scene.add(blob);
@@ -93,7 +93,7 @@ export function makeVehicle(scene, type, color) {
     addBox(2.3, 2.05, 5.8, bodyMat, 0, 1.25, 0);
     addBox(2.34, 0.28, 5.84, stripeMat, 0, 1.05, 0);
     addBox(2.15, 0.85, 0.08, glass, 0, 1.75, 2.88);
-    addBox(2.35, 0.18, 5.9, dark, 0, 2.34, 0);
+    addBox(2.35, 0.18, 5.9, new THREE.MeshLambertMaterial({ color: 0xeeeee8 }), 0, 2.34, 0); // cream roof
     for (const sx of [-0.8, 0.8]) addBox(0.32, 0.2, 0.1, lightMat, sx, 0.65, 2.92);
     for (const side of [-1, 1]) {
       for (let j = 0; j < 4; j++) {
@@ -155,14 +155,14 @@ export function spawnWorldEntities(scene) {
   };
 
   // Driveable Sri Lankan fleet parked around town
-  addDriveable('tuk', -4, 5.8, 0xf2c200);       // Classic Yellow Tuk
-  addDriveable('tuk', 26, -6.4, 0xd23b2a);      // Red Tuk
-  addDriveable('tuk', 15.5, -26, 0x16a34a, 0);  // Green Tuk on Village Lane
-  addDriveable('car', -92, 6.4, 0x2878b8);      // Blue Sedan
+  addDriveable('tuk', -4, 5.8, 0xf6b800);       // Classic Yellow Tuk
+  addDriveable('tuk', 26, -6.4, 0xd0342c);      // Red Tuk
+  addDriveable('tuk', 15.5, -26, 0x139a5b, 0);  // Green Tuk on Village Lane
+  addDriveable('car', -92, 5.9, 0x2a6fb5);      // Blue Sedan
   addDriveable('bus', -34, 5.8, 0xb91c1c);      // Driveable Red CTB Bus!
 
   // Pedestrians
-  const shirtColors = [0xe8d34e, 0x4b91c5, 0xd66c56, 0x5eaa72, 0xf472b6, 0xa78bfa];
+  const shirtColors = [0xe3b23c, 0x3f83c7, 0xc9553f, 0x4f9d69, 0xd9649a, 0x8b78d6];
   for (let i = 0; i < 16; i++) {
     const g = new THREE.Group();
     const skin = new THREE.MeshLambertMaterial({ color: 0x9b6847 });
@@ -183,7 +183,7 @@ export function spawnWorldEntities(scene) {
     }
 
     const x = -135 + i * 18;
-    const z = i % 2 ? 7.3 : -7.3;
+    const z = i % 2 ? 7.6 : -7.6;
     g.position.set(x, 0, z);
     scene.add(g);
     pedestrians.push({ g, dir: i % 2 ? 1 : -1, phase: Math.random() * 6.28, legs, minX: -145, maxX: 145 });
@@ -201,7 +201,7 @@ export function spawnWorldEntities(scene) {
   };
 
   for (let i = 0; i < 7; i++) {
-    makeTraffic(i % 3 === 0 ? 'tuk' : 'car', -140 + i * 43, -2.35, 1, [0xd23b2a, 0x2878b8, 0xe6e6e6, 0x3c9a55][i % 4]);
+    makeTraffic(i % 3 === 0 ? 'tuk' : 'car', -140 + i * 43, -2.35, 1, [0xd0342c, 0x2a6fb5, 0xe6e6e6, 0x3c9a55][i % 4]);
     makeTraffic(i % 3 === 1 ? 'bus' : 'car', 140 - i * 43, 2.35, -1, [0xb91c1c, 0xd9d9d9, 0xe0b52b][i % 3]);
   }
 
