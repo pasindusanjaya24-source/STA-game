@@ -1,5 +1,5 @@
-// main.js — Core Engine, Sound FX, Missions, Radar Minimap, Physics & Loop
-import { buildWorld, clamp } from './world.js';
+// main.js — Core Engine, Shadows, Sound FX, Missions, Radar Minimap, Physics & Loop
+import { buildWorld, clamp, PAL } from './world.js';
 import { createPlayer, spawnWorldEntities } from './entities.js';
 
 const THREE = window.THREE;
@@ -45,17 +45,24 @@ class SoundEngine {
 }
 const sfx = new SoundEngine();
 
-/* ---------- Renderer & Scene ---------- */
+// Renderer & Tone Mapping — rich contrast without washing out colors
+const SHADOWS = true; // set false on weak GPUs for extra FPS
 const canvas = $('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-let scale = Math.min(window.devicePixelRatio || 1, 1);
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.shadowMap.enabled = SHADOWS;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.95; // Washed-out white/pastel look එක අඩු කරලා deep color දෙනවා
+
+const MAX_SCALE = Math.min(window.devicePixelRatio || 1, 1.25), MIN_SCALE = 0.75;
+let scale = MAX_SCALE;
 function applyRes() { renderer.setPixelRatio(scale); renderer.setSize(innerWidth, innerHeight, false); }
 applyRes();
 
-const FOG = 0xd4ecf2;
+const FOG = PAL.fog; // Slightly deeper tropical sky haze
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(FOG);
-scene.fog = new THREE.Fog(FOG, 75, 240);
+scene.fog = new THREE.Fog(FOG, 95, 275); // Push fog slightly further so nearby objects stay crisp
 
 const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.3, 350);
 addEventListener('resize', () => {
@@ -65,14 +72,35 @@ addEventListener('resize', () => {
 });
 
 const SUN = new THREE.Vector3(0.5, 0.62, -0.4).normalize();
-scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x6b8a4a, 0.76));
-const sunL = new THREE.DirectionalLight(0xfff0d0, 0.74);
-sunL.position.copy(SUN).multiplyScalar(100);
-scene.add(sunL);
+scene.add(new THREE.HemisphereLight(PAL.hemiSky, PAL.hemiGround, 0.62)); // Balanced ambient so shadows stay clear
+const sunL = new THREE.DirectionalLight(PAL.sun, 0.95); // Crisp warm sunlight for rich colors & shadows
+sunL.position.copy(SUN).multiplyScalar(110);
+sunL.castShadow = SHADOWS;
+sunL.shadow.mapSize.set(2048, 2048);
+sunL.shadow.camera.near = 20;
+sunL.shadow.camera.far = 260;
+const dCam = 42;
+sunL.shadow.camera.left = -dCam; sunL.shadow.camera.right = dCam;
+sunL.shadow.camera.top = dCam; sunL.shadow.camera.bottom = -dCam;
+sunL.shadow.bias = -0.0005;
+scene.add(sunL, sunL.target);
 
 const { cols, sky, clouds, landmarks } = buildWorld(scene);
 const player = createPlayer(scene);
 const { vehicles, traffic, pedestrians, targets } = spawnWorldEntities(scene);
+
+// Enable shadow casting/receiving on dynamic vehicles, pedestrians & targets
+for (const v of [...vehicles, ...traffic]) {
+  v.root.traverse(ch => { if (ch.isMesh) { ch.castShadow = true; ch.receiveShadow = true; } });
+}
+for (const p of pedestrians) {
+  p.g.traverse(ch => { if (ch.isMesh) { ch.castShadow = true; ch.receiveShadow = true; } });
+}
+for (const t of targets) {
+  t.g.traverse(ch => { if (ch.isMesh) { ch.castShadow = true; ch.receiveShadow = true; } });
+}
+
+player.g.traverse(ch => { if (ch.isMesh) ch.castShadow = true; });
 
 /* ---------- Mission Checkpoint Beacon ---------- */
 const beaconGeo = new THREE.CylinderGeometry(2.6, 2.6, 14, 16, 1, true);
@@ -90,7 +118,7 @@ const keys = {};
 let activeVehicle = null, aiming = false, armed = false;
 let ammo = 12, reserveAmmo = 60, health = 100, stamina = 100, cash = 1500;
 let shotCooldown = 0, toastTimer = 0, hudTick = 0, gameMinutes = 10 * 60 + 30;
-let mission = null; // { phase: 'pickup'|'dropoff', target: {name, x, z}, reward: number }
+let mission = null;
 
 const raycaster = new THREE.Raycaster();
 const tracers = [];
@@ -105,7 +133,9 @@ function updateHud() {
   $('hp-bar').style.width = clamp(health, 0, 100) + '%';
   $('stam-bar').style.width = clamp(stamina, 0, 100) + '%';
   $('cash').textContent = 'LKR ' + cash.toLocaleString();
-  $('ammo').textContent = armed ? `PISTOL: ${ammo} / ${reserveAmmo}` : 'PISTOL: HOLSTERED';
+  const ammoStr = `${ammo} / ${reserveAmmo}`;
+  $('ammo').textContent = armed ? `PISTOL: ${ammoStr}` : 'PISTOL: HOLSTERED';
+  $('ammo-bottom').textContent = armed ? ammoStr : 'HOLSTERED';
   $('speed').textContent = activeVehicle
     ? `${activeVehicle.type.toUpperCase()} • ${Math.round(Math.abs(activeVehicle.speed) * 8)} km/h`
     : 'ON FOOT';
@@ -127,7 +157,7 @@ function startTaxiMission() {
   beacon.position.set(pick.x, 7, pick.z);
   beacon.material.color.setHex(0xf5c518);
   beacon.visible = true;
-  $('mission-text').textContent = `Pick up passenger at ${pick.name}`;
+  $('mission-text').textContent = `Pick up at ${pick.name}`;
   toast(`Taxi Job Started! Head to ${pick.name}`);
 }
 
@@ -135,6 +165,7 @@ function startTaxiMission() {
 addEventListener('keydown', e => {
   keys[e.code] = true;
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+  if (paused) return;
   if (e.code === 'KeyE' && !e.repeat) toggleVehicle();
   if (e.code === 'KeyH' && !e.repeat && activeVehicle) sfx.horn(activeVehicle.type === 'bus');
   if (e.code === 'KeyM' && !e.repeat) startTaxiMission();
@@ -197,6 +228,7 @@ $('go').addEventListener('click', () => {
   sfx.init();
   started = true; paused = false;
   $('ov').style.display = 'none';
+  updateHud();
   lockPointer();
 });
 
@@ -259,29 +291,32 @@ function updateVehicle(dt, v, playerControlled) {
 
     const nx = v.root.position.x + Math.sin(v.yaw) * v.speed * dt;
     const nz = v.root.position.z + Math.cos(v.yaw) * v.speed * dt;
-    if (!vehicleBlocked(nx, nz, v)) {
+    const px = v.root.position.x, pz = v.root.position.z;
+    if (vehicleBlocked(px, pz, v) || !vehicleBlocked(nx, nz, v)) {
+      // free (or already stuck inside a collider -> let it drive out)
       v.root.position.x = clamp(nx, -155, 155);
       v.root.position.z = clamp(nz, -155, 155);
+    } else if (!vehicleBlocked(nx, pz, v)) {      // slide along walls
+      v.root.position.x = clamp(nx, -155, 155); v.speed *= 0.7;
+    } else if (!vehicleBlocked(px, nz, v)) {
+      v.root.position.z = clamp(nz, -155, 155); v.speed *= 0.7;
     } else {
       if (Math.abs(v.speed) > 4) sfx.hit();
       v.speed = -v.speed * 0.25;
     }
     P.x = v.root.position.x; P.z = v.root.position.z; P.y = 0; P.rot = v.yaw;
   } else {
-    // AI Traffic: Only brake for obstacles IN THE SAME LANE (Z difference < 2.2) and AHEAD
     let blocked = false;
     const vx = v.root.position.x;
     const vz = v.root.position.z;
     const stopDist = v.radius + 5.5;
 
-    // 1. Check if Player or Player's active vehicle is blocking this lane ahead
     const dxPlayer = (P.x - vx) * v.dir;
     const dzPlayer = Math.abs(P.z - vz);
     if (dxPlayer > 0 && dxPlayer < stopDist && dzPlayer < 2.3) {
       blocked = true;
     }
 
-    // 2. Check other traffic/parked vehicles ONLY in the same lane and ahead
     if (!blocked) {
       for (const other of [...vehicles, ...traffic]) {
         if (other === v) continue;
@@ -298,7 +333,6 @@ function updateVehicle(dt, v, playerControlled) {
     v.speed += (targetSpd - v.speed) * Math.min(1, dt * 4);
     v.root.position.x += v.speed * dt;
 
-    // Wrap around smoothly without stacking at edges
     if (v.root.position.x > 154) v.root.position.x = -154;
     if (v.root.position.x < -154) v.root.position.x = 154;
   }
@@ -378,47 +412,45 @@ function floorAt() {
 
 /* ---------- 2D Radar Minimap Renderer ---------- */
 const mapCtx = $('minimap').getContext('2d');
+const northEl = $('radar-north');
 function drawMinimap() {
-  const ctx = mapCtx, R = 80, zoom = 0.72;
-  ctx.clearRect(0, 0, 160, 160);
+  const ctx = mapCtx, R = 82, zoom = 0.72;
+  ctx.clearRect(0, 0, 164, 164);
   ctx.save();
   ctx.translate(R, R);
-  ctx.rotate(yaw + Math.PI); // Rotate radar with camera heading
+  ctx.rotate(yaw); // heading-up radar (was inverted)
+  northEl.style.left = (50 + Math.sin(yaw) * 43) + '%';
+  northEl.style.top = (50 - Math.cos(yaw) * 43) + '%';
 
   const toMap = (wx, wz) => [(wx - P.x) * zoom, (wz - P.z) * zoom];
 
-  // Roads
   ctx.fillStyle = '#475569';
   let [rx1, rz1] = toMap(-160, -5);
   ctx.fillRect(rx1, rz1, 320 * zoom, 10 * zoom);
   let [rx2, rz2] = toMap(16.5, -150);
   ctx.fillRect(rx2, rz2, 7 * zoom, 150 * zoom);
 
-  // Landmarks
   for (const lm of landmarks) {
     const [lx, lz] = toMap(lm.x, lm.z);
     ctx.fillStyle = lm.color;
-    ctx.beginPath(); ctx.arc(lx, lz, 3.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(lx, lz, 3.4, 0, Math.PI * 2); ctx.fill();
   }
 
-  // Vehicles
   for (const v of vehicles) {
     const [vx, vz] = toMap(v.root.position.x, v.root.position.z);
     ctx.fillStyle = v === activeVehicle ? '#38bdf8' : '#facc15';
     ctx.fillRect(vx - 2.5, vz - 2.5, 5, 5);
   }
 
-  // Active Mission Beacon
   if (mission) {
     const [mx, mz] = toMap(mission.target.x, mission.target.z);
     ctx.strokeStyle = mission.phase === 'pickup' ? '#f5c518' : '#22c55e';
     ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.arc(mx, mz, 6, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(mx, mz, 6.5, 0, Math.PI * 2); ctx.stroke();
   }
 
   ctx.restore();
 
-  // Center Player Arrow
   ctx.fillStyle = '#ffffff';
   ctx.beginPath();
   ctx.moveTo(R, R - 6); ctx.lineTo(R + 4.5, R + 5); ctx.lineTo(R, R + 2.5); ctx.lineTo(R - 4.5, R + 5);
@@ -431,10 +463,13 @@ function update(dt) {
   if (shotCooldown > 0) shotCooldown -= dt;
   if (toastTimer > 0 && (toastTimer -= dt) <= 0) $('toast').style.display = 'none';
 
-  // Tracers & Target Respawn
   for (let i = tracers.length - 1; i >= 0; i--) {
     tracers[i].life -= dt;
-    if (tracers[i].life <= 0) { scene.remove(tracers[i].line); tracers.splice(i, 1); }
+    if (tracers[i].life <= 0) {
+      scene.remove(tracers[i].line);
+      tracers[i].line.geometry.dispose(); tracers[i].line.material.dispose();
+      tracers.splice(i, 1);
+    }
   }
   for (const t of targets) {
     if (!t.active && (t.respawnTimer -= dt) <= 0) {
@@ -442,13 +477,17 @@ function update(dt) {
     }
   }
 
-  // Camera Keyboard Controls
   if (keys.KeyQ || keys.ArrowLeft) yaw += 1.9 * dt;
   if (keys.ArrowRight) yaw -= 1.9 * dt;
   if (keys.ArrowUp) pitch = clamp(pitch - 1.2 * dt, -0.15, 1.25);
   if (keys.ArrowDown) pitch = clamp(pitch + 1.2 * dt, -0.15, 1.25);
 
-  // Player / Active Vehicle Movement
+  // Chase camera: swings behind the vehicle while driving forward
+  if (activeVehicle && activeVehicle.speed > 1.5 && !keys.ArrowLeft && !keys.ArrowRight && !keys.KeyQ) {
+    const want = activeVehicle.yaw + Math.PI;
+    yaw += Math.atan2(Math.sin(want - yaw), Math.cos(want - yaw)) * (1 - Math.exp(-1.6 * dt));
+  }
+
   if (activeVehicle) {
     updateVehicle(dt, activeVehicle, true);
   } else {
@@ -499,10 +538,8 @@ function update(dt) {
     player.blob.scale.setScalar(clamp(1 - P.y * 0.12, 0.4, 1));
   }
 
-  // Update Traffic & Pedestrians
   for (const v of traffic) updateVehicle(dt, v, false);
   for (const n of pedestrians) {
-    // Scatter away if player honks nearby
     const distToPlayer = Math.hypot(n.g.position.x - P.x, n.g.position.z - P.z);
     const speedMult = (keys.KeyH && distToPlayer < 12) ? 2.8 : 1.0;
 
@@ -515,7 +552,6 @@ function update(dt) {
     n.legs[0].rotation.x = sw; n.legs[1].rotation.x = -sw;
   }
 
-  // Active Taxi Mission Check
   if (mission) {
     beacon.rotation.y += dt * 2;
     const dist = Math.hypot(P.x - mission.target.x, P.z - mission.target.z);
@@ -527,21 +563,20 @@ function update(dt) {
         mission.target = dest;
         beacon.position.set(dest.x, 7, dest.z);
         beacon.material.color.setHex(0x22c55e);
-        $('mission-text').textContent = `Drop passenger at ${dest.name}`;
+        $('mission-text').textContent = `Drop at ${dest.name}`;
         sfx.cash();
         toast(`Passenger onboard! Drive to ${dest.name}`);
       } else {
         cash += mission.reward;
         sfx.cash();
         toast(`Drop-off Complete! Earned +LKR ${mission.reward}`);
-        $('mission-text').textContent = 'Job Complete! Press [M] for next Taxi Job';
+        $('mission-text').textContent = 'Press [M] for next Taxi Job';
         beacon.visible = false;
         mission = null;
       }
     }
   }
 
-  // Dynamic Location Name
   let loc = 'Lanka Main Road';
   if (P.z < -20 && Math.abs(P.x - 20) < 22) loc = 'Village Lane';
   else if (Math.hypot(P.x + 55, P.z + 45) < 25) loc = 'Sacred Temple Grounds';
@@ -549,7 +584,6 @@ function update(dt) {
   else if (P.x > 70 && P.z < -30) loc = 'Practice Firing Range';
   $('loc').textContent = loc;
 
-  // Vehicle Enter Prompt
   if (!activeVehicle) {
     const near = vehicles.some(v => Math.hypot(P.x - v.root.position.x, P.z - v.root.position.z) < 4.5);
     $('interact').style.display = near ? 'block' : 'none';
@@ -557,7 +591,6 @@ function update(dt) {
     $('interact').style.display = 'none';
   }
 
-  // Camera Follow + Wall Collision
   const camDist = aiming ? 2.3 : (activeVehicle ? (activeVehicle.type === 'bus' ? 9.5 : 6.6) : 4.8);
   const targetY = P.y + (activeVehicle ? 1.6 : 1.65);
   const sideOffset = aiming ? 0.65 : 0;
@@ -579,6 +612,14 @@ function update(dt) {
   camera.lookAt(tx, targetY, tz);
   sky.position.copy(camera.position);
 
+  // Shadow frustum follows the player (snapped to avoid shimmering)
+  if (SHADOWS) {
+    const sx = Math.round(P.x / 8) * 8, sz = Math.round(P.z / 8) * 8;
+    sunL.target.position.set(sx, 0, sz);
+    sunL.position.set(sx + SUN.x * 110, SUN.y * 110, sz + SUN.z * 110);
+    sunL.target.updateMatrixWorld();
+  }
+
   for (const c of clouds) {
     c.position.x += 1.4 * dt;
     if (c.position.x > 240) c.position.x = -240;
@@ -592,17 +633,24 @@ function update(dt) {
 }
 
 /* ---------- Render Loop ---------- */
-let last = performance.now(), frames = 0, fpsTimer = 0;
+let last = performance.now(), frames = 0, fpsTimer = 0, warm = 0, lowCount = 0;
 function loop(now) {
   requestAnimationFrame(loop);
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
 
-  frames++; fpsTimer += dt;
+  frames++; fpsTimer += dt; warm += dt;
   if (fpsTimer >= 0.5) {
     const fps = Math.round(frames / fpsTimer);
     $('fps').textContent = fps + ' FPS';
-    if (fps < 30 && scale > 0.65) { scale = Math.max(0.65, scale - 0.15); applyRes(); }
+    if (warm > 4) { // ignore shader-compile warm-up
+      if (fps < 26) {
+        if (++lowCount >= 4 && scale > MIN_SCALE) { scale = Math.max(MIN_SCALE, scale - 0.1); applyRes(); lowCount = 0; }
+      } else {
+        lowCount = 0;
+        if (fps > 52 && scale < MAX_SCALE) { scale = Math.min(MAX_SCALE, scale + 0.05); applyRes(); }
+      }
+    }
     frames = 0; fpsTimer = 0;
   }
 
