@@ -62,9 +62,9 @@ applyRes();
 const FOG = PAL.fog; // Slightly deeper tropical sky haze
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(FOG);
-scene.fog = new THREE.Fog(FOG, 95, 275); // Push fog slightly further so nearby objects stay crisp
+scene.fog = new THREE.Fog(FOG, 110, 330); // Push fog slightly further so nearby objects stay crisp
 
-const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.3, 350);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.3, 420);
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
@@ -85,12 +85,38 @@ sunL.shadow.camera.top = dCam; sunL.shadow.camera.bottom = -dCam;
 sunL.shadow.bias = -0.0005;
 scene.add(sunL, sunL.target);
 
-const { cols, sky, clouds, landmarks } = buildWorld(scene);
+const { cols, sky, clouds, landmarks, bounds, mapShapes, areas, regions, tick } = buildWorld(scene);
+
+/* ---------- Spatial grid: collision checks only look at nearby colliders ---------- */
+const CELL = 24;
+const grid = new Map();
+const gk = (ix, iz) => (ix + 100) * 400 + (iz + 100);
+for (const c of cols) {
+  const ix0 = Math.floor(c.x0 / CELL), ix1 = Math.floor(c.x1 / CELL), iz0 = Math.floor(c.z0 / CELL), iz1 = Math.floor(c.z1 / CELL);
+  for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) {
+    const k = gk(ix, iz);
+    let a = grid.get(k); if (!a) grid.set(k, a = []);
+    a.push(c);
+  }
+}
+let gridStamp = 0;
+const _near = [];
+function nearCols(x, z, pad = 0) {
+  gridStamp++; _near.length = 0;
+  const ix0 = Math.floor((x - pad) / CELL), ix1 = Math.floor((x + pad) / CELL), iz0 = Math.floor((z - pad) / CELL), iz1 = Math.floor((z + pad) / CELL);
+  for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) {
+    const a = grid.get(gk(ix, iz));
+    if (!a) continue;
+    for (const c of a) if (c._s !== gridStamp) { c._s = gridStamp; _near.push(c); }
+  }
+  return _near;
+}
 const player = createPlayer(scene);
 const { vehicles, traffic, pedestrians, targets } = spawnWorldEntities(scene);
+const allVehicles = [...vehicles, ...traffic];
 
 // Enable shadow casting/receiving on dynamic vehicles, pedestrians & targets
-for (const v of [...vehicles, ...traffic]) {
+for (const v of allVehicles) {
   v.root.traverse(ch => { if (ch.isMesh) { ch.castShadow = true; ch.receiveShadow = true; } });
 }
 for (const p of pedestrians) {
@@ -118,7 +144,7 @@ const keys = {};
 let activeVehicle = null, aiming = false, armed = false;
 let ammo = 12, reserveAmmo = 60, health = 100, stamina = 100, cash = 1500;
 let shotCooldown = 0, toastTimer = 0, hudTick = 0, gameMinutes = 10 * 60 + 30;
-let mission = null;
+let mission = null, lastLoc = '';
 
 const raycaster = new THREE.Raycaster();
 const tracers = [];
@@ -267,12 +293,12 @@ function toggleVehicle() {
 }
 
 function vehicleBlocked(x, z, v) {
-  for (const c of cols) {
+  const pad = v.radius;
+  for (const c of nearCols(x, z, pad + 1)) {
     if (!c.b) continue;
-    const pad = v.radius;
     if (x > c.x0 - pad && x < c.x1 + pad && z > c.z0 - pad && z < c.z1 + pad) return true;
   }
-  for (const other of [...vehicles, ...traffic]) {
+  for (const other of allVehicles) {
     if (other === v) continue;
     const d = Math.hypot(x - other.root.position.x, z - other.root.position.z);
     if (d < v.radius + other.radius) return true;
@@ -294,12 +320,12 @@ function updateVehicle(dt, v, playerControlled) {
     const px = v.root.position.x, pz = v.root.position.z;
     if (vehicleBlocked(px, pz, v) || !vehicleBlocked(nx, nz, v)) {
       // free (or already stuck inside a collider -> let it drive out)
-      v.root.position.x = clamp(nx, -155, 155);
-      v.root.position.z = clamp(nz, -155, 155);
+      v.root.position.x = clamp(nx, bounds.x0, bounds.x1);
+      v.root.position.z = clamp(nz, bounds.z0, bounds.vz1);
     } else if (!vehicleBlocked(nx, pz, v)) {      // slide along walls
-      v.root.position.x = clamp(nx, -155, 155); v.speed *= 0.7;
+      v.root.position.x = clamp(nx, bounds.x0, bounds.x1); v.speed *= 0.7;
     } else if (!vehicleBlocked(px, nz, v)) {
-      v.root.position.z = clamp(nz, -155, 155); v.speed *= 0.7;
+      v.root.position.z = clamp(nz, bounds.z0, bounds.vz1); v.speed *= 0.7;
     } else {
       if (Math.abs(v.speed) > 4) sfx.hit();
       v.speed = -v.speed * 0.25;
@@ -318,7 +344,7 @@ function updateVehicle(dt, v, playerControlled) {
     }
 
     if (!blocked) {
-      for (const other of [...vehicles, ...traffic]) {
+      for (const other of allVehicles) {
         if (other === v) continue;
         const dx = (other.root.position.x - vx) * v.dir;
         const dz = Math.abs(other.root.position.z - vz);
@@ -333,8 +359,8 @@ function updateVehicle(dt, v, playerControlled) {
     v.speed += (targetSpd - v.speed) * Math.min(1, dt * 4);
     v.root.position.x += v.speed * dt;
 
-    if (v.root.position.x > 154) v.root.position.x = -154;
-    if (v.root.position.x < -154) v.root.position.x = 154;
+    if (v.root.position.x > bounds.x1 - 26) v.root.position.x = bounds.x0 + 26;
+    if (v.root.position.x < bounds.x0 + 26) v.root.position.x = bounds.x1 - 26;
   }
   v.root.rotation.y = v.yaw;
   v.wheels.forEach(w => { w.rotation.x -= v.speed * dt * 2.2; });
@@ -384,7 +410,7 @@ function shoot() {
 
 /* ---------- Player Physics ---------- */
 function collide() {
-  for (const c of cols) {
+  for (const c of nearCols(P.x, P.z, 2)) {
     if (P.y >= c.h - 0.1) continue;
     if (P.x < c.x0 - P.r || P.x > c.x1 + P.r || P.z < c.z0 - P.r || P.z > c.z1 + P.r) continue;
     const cx = clamp(P.x, c.x0, c.x1), cz = clamp(P.z, c.z0, c.z1);
@@ -402,7 +428,7 @@ function collide() {
 
 function floorAt() {
   let f = 0;
-  for (const c of cols) {
+  for (const c of nearCols(P.x, P.z, 1)) {
     if (c.h <= 1.8 && P.y >= c.h - 0.35 && P.x > c.x0 - 0.2 && P.x < c.x1 + 0.2 && P.z > c.z0 - 0.2 && P.z < c.z1 + 0.2) {
       f = Math.max(f, c.h);
     }
@@ -424,11 +450,12 @@ function drawMinimap() {
 
   const toMap = (wx, wz) => [(wx - P.x) * zoom, (wz - P.z) * zoom];
 
-  ctx.fillStyle = '#475569';
-  let [rx1, rz1] = toMap(-160, -5);
-  ctx.fillRect(rx1, rz1, 320 * zoom, 10 * zoom);
-  let [rx2, rz2] = toMap(16.5, -150);
-  ctx.fillRect(rx2, rz2, 7 * zoom, 150 * zoom);
+  for (const s of mapShapes) {
+    if (s.x1 < P.x - 140 || s.x0 > P.x + 140 || s.z1 < P.z - 140 || s.z0 > P.z + 140) continue;
+    ctx.fillStyle = s.color;
+    const [sx, sz] = toMap(s.x0, s.z0);
+    ctx.fillRect(sx, sz, (s.x1 - s.x0) * zoom, (s.z1 - s.z0) * zoom);
+  }
 
   for (const lm of landmarks) {
     const [lx, lz] = toMap(lm.x, lm.z);
@@ -460,6 +487,7 @@ function drawMinimap() {
 /* ---------- Main Update Step ---------- */
 function update(dt) {
   gameMinutes += dt * 1.5;
+  tick(dt);
   if (shotCooldown > 0) shotCooldown -= dt;
   if (toastTimer > 0 && (toastTimer -= dt) <= 0) $('toast').style.display = 'none';
 
@@ -506,8 +534,8 @@ function update(dt) {
     const k = 1 - Math.exp(-(P.ground ? 12 : 3) * dt);
     P.vx += (mxv * spd * (len > 0 ? 1 : 0) - P.vx) * k;
     P.vz += (mzv * spd * (len > 0 ? 1 : 0) - P.vz) * k;
-    P.x = clamp(P.x + P.vx * dt, -155, 155);
-    P.z = clamp(P.z + P.vz * dt, -155, 155);
+    P.x = clamp(P.x + P.vx * dt, bounds.x0, bounds.x1);
+    P.z = clamp(P.z + P.vz * dt, bounds.z0, bounds.z1);
     collide();
 
     if (keys.Space && P.ground) { P.vy = 9.2; P.ground = false; }
@@ -559,8 +587,10 @@ function update(dt) {
       if (mission.phase === 'pickup') {
         let dest = landmarks[Math.floor(Math.random() * landmarks.length)];
         while (dest === mission.target) dest = landmarks[Math.floor(Math.random() * landmarks.length)];
+        const prev = mission.target;
         mission.phase = 'dropoff';
         mission.target = dest;
+        mission.reward = Math.round((250 + Math.hypot(dest.x - prev.x, dest.z - prev.z) * 1.1) / 10) * 10;
         beacon.position.set(dest.x, 7, dest.z);
         beacon.material.color.setHex(0x22c55e);
         $('mission-text').textContent = `Drop at ${dest.name}`;
@@ -578,11 +608,8 @@ function update(dt) {
   }
 
   let loc = 'Lanka Main Road';
-  if (P.z < -20 && Math.abs(P.x - 20) < 22) loc = 'Village Lane';
-  else if (Math.hypot(P.x + 55, P.z + 45) < 25) loc = 'Sacred Temple Grounds';
-  else if (P.x > -5 && P.x < 48 && P.z > 0 && P.z < 20) loc = 'Town Bazaar';
-  else if (P.x > 70 && P.z < -30) loc = 'Practice Firing Range';
-  $('loc').textContent = loc;
+  for (const a of areas) if (P.x > a.x0 && P.x < a.x1 && P.z > a.z0 && P.z < a.z1) { loc = a.name; break; }
+  if (loc !== lastLoc) { $('loc').textContent = loc; lastLoc = loc; }
 
   if (!activeVehicle) {
     const near = vehicles.some(v => Math.hypot(P.x - v.root.position.x, P.z - v.root.position.z) < 4.5);
@@ -601,7 +628,7 @@ function update(dt) {
   let cy = targetY + Math.sin(pitch) * camDist;
   const cz = tz + Math.cos(yaw) * Math.cos(pitch) * camDist;
 
-  for (const c of cols) {
+  for (const c of nearCols(cx, cz, 1)) {
     if (!c.b || cy > c.h) continue;
     if (cx > c.x0 - 0.3 && cx < c.x1 + 0.3 && cz > c.z0 - 0.3 && cz < c.z1 + 0.3) {
       cy = Math.max(cy, c.h + 0.4);
@@ -622,12 +649,16 @@ function update(dt) {
 
   for (const c of clouds) {
     c.position.x += 1.4 * dt;
-    if (c.position.x > 240) c.position.x = -240;
+    if (c.position.x > 440) c.position.x = -440;
   }
 
   if ((hudTick += dt) > 0.12) {
     updateHud();
     drawMinimap();
+    // hide far-away scenery / actors: fewer draw calls + shadow casters
+    for (const r of regions) r.obj.visible = Math.hypot(r.cx - P.x, r.cz - P.z) < r.r + 340;
+    for (const v of traffic) v.root.visible = Math.hypot(v.root.position.x - P.x, v.root.position.z - P.z) < 340;
+    for (const n of pedestrians) n.g.visible = Math.hypot(n.g.position.x - P.x, n.g.position.z - P.z) < 200;
     hudTick = 0;
   }
 }
