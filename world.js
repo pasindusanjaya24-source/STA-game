@@ -1,7 +1,11 @@
 // world.js — Procedural Textures, Sri Lankan Buildings, Roads, Power Lines & Colliders
+import { buildRegions } from './Regions.js';
 const THREE = window.THREE;
 
 export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+/* ---------- Playable world bounds (x east, z south). Sea starts at z = 300 ---------- */
+export const BOUNDS = { x0: -380, x1: 380, z0: -335, z1: 312, vz1: 296 };
 
 /* ---------- Shared colour palette (single source of truth) ---------- */
 export const PAL = {
@@ -91,6 +95,33 @@ function makeBrickTex() {
   return tex;
 }
 
+function makeSandTex() {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#e8d6a2'; ctx.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < 380; i++) {
+    ctx.fillStyle = Math.random() < 0.5 ? 'rgba(190,160,100,0.35)' : 'rgba(255,248,225,0.4)';
+    ctx.fillRect(Math.random() * 128, Math.random() * 128, 2, 2);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+  return t;
+}
+
+function makeWaterTex() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#2f8fb8'; ctx.fillRect(0, 0, 256, 256);
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)'; ctx.lineWidth = 2;
+  for (let i = 0; i < 70; i++) {
+    const x = Math.random() * 256, y = Math.random() * 256, ww = 14 + Math.random() * 30;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x + ww / 2, y - 3, x + ww, y); ctx.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(60, 12); t.anisotropy = 4;
+  return t;
+}
+
 const unitBox = new THREE.BoxGeometry(1, 1, 1);
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler();
 const _v = new THREE.Vector3(), _s = new THREE.Vector3(1, 1, 1), _c = new THREE.Color();
@@ -131,6 +162,7 @@ const polyGeo = arr => {
 };
 
 const worldMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+const solidMat = new THREE.MeshLambertMaterial({ vertexColors: true });
 
 export function buildWorld(scene) {
   const cols = [];
@@ -194,9 +226,9 @@ export function buildWorld(scene) {
   })();
   const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x777777, vertexColors: true, fog: false });
   const clouds = [];
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 16; i++) {
     const c = new THREE.Mesh(cloudGeo, cloudMat);
-    c.position.set(rr(-230, 230), rr(72, 98), rr(-230, 230));
+    c.position.set(rr(-420, 420), rr(72, 98), rr(-420, 420));
     c.scale.setScalar(rr(0.8, 1.6));
     scene.add(c);
     clouds.push(c);
@@ -204,7 +236,7 @@ export function buildWorld(scene) {
 
   // Ground Plane
   {
-    const g = new THREE.PlaneGeometry(900, 900, 80, 80);
+    const g = new THREE.PlaneGeometry(1500, 1500, 110, 110);
     g.rotateX(-Math.PI / 2);
     const p = g.attributes.position, col = [], a = new THREE.Color(PAL.ground[0]), b = new THREE.Color(PAL.ground[1]), c = new THREE.Color(PAL.ground[2]), t = new THREE.Color();
     for (let i = 0; i < p.count; i++) {
@@ -231,18 +263,18 @@ export function buildWorld(scene) {
   const shMat = new THREE.MeshLambertMaterial({ map: shoulderTex });
   const rdMat = new THREE.MeshLambertMaterial({ map: roadTex });
 
-  strip(320, 16, 0, 0, 0.02, shMat);
-  strip(13, 150, 20, -75, 0.03, shMat);
-  strip(320, 10, 0, 0, 0.05, rdMat);
-  strip(7, 150, 20, -75, 0.08, rdMat);
+  strip(760, 16, 0, 0, 0.02, shMat);
+  strip(13, 262, 20, -131, 0.03, shMat);
+  strip(760, 10, 0, 0, 0.05, rdMat);
+  strip(7, 262, 20, -131, 0.08, rdMat);
 
   {
     const P = [], W = 0xf8fafc;
-    P.push(box(320, 0.02, 0.18, W, 0, 0.115, 4.55));
-    P.push(box(176, 0.02, 0.18, W, -72, 0.115, -4.55), box(136, 0.02, 0.18, W, 92, 0.115, -4.55));
-    P.push(box(0.18, 0.02, 145, W, 16.8, 0.12, -77.5), box(0.18, 0.02, 145, W, 23.2, 0.12, -77.5));
-    for (let x = -156; x <= 156; x += 5) if (Math.abs(x - 20) > 8) P.push(box(2.4, 0.02, 0.2, W, x, 0.125, 0));
-    for (let z = -12; z >= -148; z -= 5) P.push(box(0.2, 0.02, 2.4, W, 20, 0.13, z));
+    P.push(box(360.5, 0.02, 0.18, W, -199.75, 0.115, 4.55), box(279, 0.02, 0.18, W, 127, 0.115, 4.55), box(106.5, 0.02, 0.18, W, 326.75, 0.115, 4.55));
+    P.push(box(396, 0.02, 0.18, W, -182, 0.115, -4.55), box(242.5, 0.02, 0.18, W, 145.25, 0.115, -4.55), box(106.5, 0.02, 0.18, W, 326.75, 0.115, -4.55));
+    P.push(box(0.18, 0.02, 257, W, 16.8, 0.12, -133.5), box(0.18, 0.02, 257, W, 23.2, 0.12, -133.5));
+    for (let x = -376; x <= 376; x += 5) if (Math.abs(x - 20) > 8 && Math.abs(x + 16) > 8 && Math.abs(x - 270) > 8) P.push(box(2.4, 0.02, 0.2, W, x, 0.125, 0));
+    for (let z = -12; z >= -256; z -= 5) P.push(box(0.2, 0.02, 2.4, W, 20, 0.13, z));
     for (let i = 0; i < 9; i++) P.push(box(3.2, 0.02, 0.5, W, 10, 0.13, -3.6 + i * 0.9));
     const mk = new THREE.Mesh(merge(P), worldMat);
     mk.receiveShadow = true;
@@ -364,11 +396,14 @@ export function buildWorld(scene) {
     box(0.9, 0.08, 0.08, 0x374151, 0, 5.9, 0) // Cross-arm for power cables
   ]);
   const L = [], polePositions = [];
-  for (let x = -140; x <= 140; x += 28) {
-    if (Math.abs(x - 20) < 9) continue;
-    L.push(mx(x, 0, -5.9, -Math.PI / 2, 1)); addCol(x, -5.9, 0.3, 0.3, 6, false);
-    polePositions.push([x, 5.9, -5.9]);
-    L.push(mx(x + 14, 0, 5.9, Math.PI / 2, 1)); addCol(x + 14, 5.9, 0.3, 0.3, 6, false);
+  const xRoads = [20, -16, 270];
+  const nearRoad = px => xRoads.some(r => Math.abs(px - r) < 7);
+  for (let x = -370; x <= 370; x += 28) {
+    if (!nearRoad(x)) {
+      L.push(mx(x, 0, -5.9, -Math.PI / 2, 1)); addCol(x, -5.9, 0.3, 0.3, 6, false);
+      polePositions.push([x, 5.9, -5.9]);
+    }
+    if (!nearRoad(x + 14)) { L.push(mx(x + 14, 0, 5.9, Math.PI / 2, 1)); addCol(x + 14, 5.9, 0.3, 0.3, 6, false); }
   }
   inst(lampGeo, L, false, true, false);
 
@@ -426,23 +461,69 @@ export function buildWorld(scene) {
     return merge(P);
   })();
 
+  /* ---------- Extra regions: Colombo, Kandy, Galle Fort, Mirissa beach, hills ---------- */
+  const regions = [], mapShapes = [], roadShapes = [], areas = [], exclude = [], tickers = [];
+  const T = [], B = [], BN = [];
+  exclude.push([74, -62, 112, -28]); // practice range
+  buildRegions({
+    scene, THREE, merge, box, part, solidMat, rand, rr, PAL, addCol, landmarks, strip, shMat, rdMat,
+    regions, exclude, areas, tickers, shapes: mapShapes, roads: roadShapes, trees: T, bushes: B, mx, signTex,
+    makeSandTex, makeWaterTex
+  });
+  areas.push(
+    { name: 'Practice Firing Range', x0: 70, z0: -70, x1: 125, z1: -28 },
+    { name: 'Sacred Temple Grounds', x0: -80, z0: -70, x1: -30, z1: -20 },
+    { name: 'Town Bazaar', x0: -5, z0: 0, x1: 48, z1: 20 },
+    { name: 'Village Lane', x0: -2, z0: -262, x1: 42, z1: -20 },
+    { name: 'Galle Road', x0: -24, z0: 20, x1: -8, z1: 195 }
+  );
+
   function free(x, z, m) {
-    if (Math.abs(z) < 9.5 || (Math.abs(x - 20) < 9 && z < 9.5)) return false;
-    if (x > 74 && x < 112 && z > -62 && z < -28) return false; // keep practice range clear
+    if (Math.abs(z) < 9.5) return false;
+    if (Math.abs(x - 20) < 9 && z < 9.5 && z > -272) return false;       // village lane
+    if (Math.abs(x + 16) < 9 && z > 0 && z < 215) return false;          // Galle road
+    if (Math.abs(x - 270) < 9 && Math.abs(z) < 140) return false;        // Colombo avenue
+    if (Math.abs(z + 262) < 9.5 && x > -130 && x < 190) return false;    // Kandy road
+    if (Math.abs(z - 200) < 9.5) return false;                           // coastal road
+    for (const e of exclude) if (x > e[0] - m && x < e[2] + m && z > e[1] - m && z < e[3] + m) return false;
     for (const c of cols) if (x > c.x0 - m && x < c.x1 + m && z > c.z0 - m && z < c.z1 + m) return false;
     return true;
   }
   function scatter(n, m, fn) {
     let k = 0, t = 0;
     while (k < n && t++ < n * 40) {
-      const x = rr(-150, 150), z = rr(-150, 150);
+      const x = rr(-370, 370), z = rr(-325, 250);
       if (free(x, z, m)) { fn(x, z); k++; }
     }
   }
 
-  const T = []; scatter(170, 3, (x, z) => { T.push(mx(x, 0, z, rr(0, 6.28), rr(0.8, 1.4))); addCol(x, z, 0.7, 0.7, 9, false); }); inst(treeGeo, T);
-  const B = []; scatter(150, 1.6, (x, z) => B.push(mx(x, 0, z, rr(0, 6.28), rr(0.8, 1.7)))); inst(bushGeo, B, true, false, true);
-  const BN = []; scatter(40, 2, (x, z) => BN.push(mx(x, 0, z, rr(0, 6.28), rr(0.9, 1.3)))); inst(bananaGeo, BN, true, false, true);
+  // Instanced scenery is split into 150x150 chunks so far-away chunks can be hidden (big FPS win)
+  function instChunked(geo, items, tint, cast, recv) {
+    const buckets = new Map();
+    for (const it of items) {
+      const key = Math.floor(it.x / 150) + ',' + Math.floor(it.z / 150);
+      let b = buckets.get(key); if (!b) buckets.set(key, b = []);
+      b.push(it);
+    }
+    for (const [key, arr] of buckets) {
+      const m = inst(geo, arr.map(i => i.m), tint, cast, recv);
+      const [bx, bz] = key.split(',').map(Number);
+      regions.push({ obj: m, cx: (bx + 0.5) * 150, cz: (bz + 0.5) * 150, r: 110 });
+    }
+  }
 
-  return { cols, sky, clouds, landmarks };
+  scatter(420, 3, (x, z) => { T.push({ x, z, m: mx(x, 0, z, rr(0, 6.28), rr(0.8, 1.4)) }); addCol(x, z, 0.7, 0.7, 9, false); });
+  scatter(300, 1.6, (x, z) => B.push({ x, z, m: mx(x, 0, z, rr(0, 6.28), rr(0.8, 1.7)) }));
+  scatter(90, 2, (x, z) => BN.push({ x, z, m: mx(x, 0, z, rr(0, 6.28), rr(0.9, 1.3)) }));
+  instChunked(treeGeo, T, false, true, true);
+  instChunked(bushGeo, B, true, false, true);
+  instChunked(bananaGeo, BN, true, false, true);
+
+  return {
+    cols, sky, clouds, landmarks, bounds: BOUNDS, areas, regions,
+    mapShapes: [...mapShapes, ...roadShapes],
+    tick: dt => { for (const f of tickers) f(dt); }
+  };
 }
+
+export { merge, box, part, worldMat, solidMat, polyGeo };
