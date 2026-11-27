@@ -689,6 +689,99 @@ export function spawnWorldEntities(scene) {
       flashTimer: 0,
     });
   };
+
+  // [ADDED] Helper to create a floating 3D speech bubble above an NPC's head
+  const createSpeechSprite = (text) => {
+    const cv = document.createElement("canvas");
+    cv.width = 512;
+    cv.height = 128;
+    const ctx = cv.getContext("2d");
+
+    // Rounded dark pill background with gold border
+    ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
+    ctx.beginPath();
+    ctx.roundRect(12, 16, 488, 76, 24);
+    ctx.fill();
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = "#facc15";
+    ctx.stroke();
+
+    // Speech bubble pointer triangle
+    ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
+    ctx.beginPath();
+    ctx.moveTo(240, 92);
+    ctx.lineTo(272, 92);
+    ctx.lineTo(256, 116);
+    ctx.closePath();
+    ctx.fill();
+
+    // Yell text
+    ctx.fillStyle = "#fef08a";
+    ctx.font = "bold 28px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, 256, 54);
+
+    const tex = new THREE.CanvasTexture(cv);
+    const mat = new THREE.SpriteMaterial({
+      map: tex,
+      transparent: true,
+      depthTest: false,
+    });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(2.8, 0.7, 1);
+    sprite.position.set(0, 2.15, 0);
+    sprite.visible = false;
+    return sprite;
+  };
+
+  // [ADDED] Wade Cart Vendor at Mirissa Beach (standing behind cart at x: 145, z: 246.7)
+  const vendorOutfit = {
+    skin: 0x8a5a3c,
+    female: false,
+    hair: 0x15110d,
+    hairStyle: "short",
+    shirt: 0xf8fafc,
+    sleeve: "short",
+    bottom: "sarong",
+    sarong: 0x2f6f4f,
+    barefoot: true,
+    scale: 1.0,
+  };
+  const vh = buildHuman(vendorOutfit, true);
+  vh.g.scale.setScalar(0.94);
+  vh.g.position.set(145, 0, 246.7);
+  const speech = createSpeechSprite("Wade wade wade isso wadeee!");
+  vh.g.add(speech);
+  scene.add(vh.g);
+
+  pedestrians.push({
+    g: vh.g,
+    h: vh,
+    legs: vh.legs,
+    dir: 1,
+    phase: 0,
+    minX: 144,
+    maxX: 146,
+    speed: 0,
+    wait: 999,
+    yaw: 0,
+    hp: 100,
+    vel: new THREE.Vector3(),
+    stun: 0,
+    panic: 0,
+    panicDirX: 1,
+    panicDirZ: 0,
+    downTimer: 0,
+    flashTimer: 0,
+    isVendor: true,
+    homeX: 145,
+    homeZ: 246.7,
+    yellTimer: 1.5,
+    yellAnim: 0,
+    speech,
+  });
+
   for (let i = 0; i < 20; i++)
     addPed(
       -340 + i * 34,
