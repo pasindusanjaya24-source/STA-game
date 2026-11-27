@@ -859,6 +859,67 @@ function floorAt() {
   return f;
 }
 
+// [FIXED] Removed duplicate incomplete collideNPC() declaration; kept single complete wall-collision & turn-around helper
+function collideNPC(n) {
+  const r = 0.38;
+  const pos = n.g.position;
+  for (const c of nearCols(pos.x, pos.z, 2)) {
+    if (pos.y >= c.h - 0.1) continue;
+    if (
+      pos.x < c.x0 - r ||
+      pos.x > c.x1 + r ||
+      pos.z < c.z0 - r ||
+      pos.z > c.z1 + r
+    )
+      continue;
+
+    const cx = clamp(pos.x, c.x0, c.x1),
+      cz = clamp(pos.z, c.z0, c.z1);
+    const dx = pos.x - cx,
+      dz = pos.z - cz,
+      d2 = dx * dx + dz * dz;
+    if (d2 >= r * r) continue;
+
+    let pushX = 0,
+      pushZ = 0;
+    if (d2 > 1e-6) {
+      const d = Math.sqrt(d2),
+        k = (r - d) / d;
+      pushX = dx * k;
+      pushZ = dz * k;
+    } else {
+      const l = pos.x - c.x0,
+        ri = c.x1 - pos.x,
+        t = pos.z - c.z0,
+        b = c.z1 - pos.z,
+        m = Math.min(l, ri, t, b);
+      if (m === l) pushX = c.x0 - r - pos.x;
+      else if (m === ri) pushX = c.x1 + r - pos.x;
+      else if (m === t) pushZ = c.z0 - r - pos.z;
+      else pushZ = c.z1 + r - pos.z;
+    }
+    pos.x += pushX;
+    pos.z += pushZ;
+
+    // Steer panicking NPCs along walls instead of getting stuck, or turn walking NPCs around
+    if (n.panic > 0) {
+      if (Math.abs(pushX) > Math.abs(pushZ)) {
+        n.panicDirX = Math.sign(pushX) * 0.35;
+        if (Math.abs(n.panicDirZ) < 0.25)
+          n.panicDirZ = (Math.random() < 0.5 ? 1 : -1) * 0.92;
+      } else {
+        n.panicDirZ = Math.sign(pushZ) * 0.35;
+        if (Math.abs(n.panicDirX) < 0.25) n.panicDirX = (n.dir || 1) * 0.92;
+      }
+      const len = Math.hypot(n.panicDirX, n.panicDirZ) || 1;
+      n.panicDirX /= len;
+      n.panicDirZ /= len;
+    } else if (Math.abs(pushX) > 0.01) {
+      n.dir *= -1;
+    }
+  }
+}
+
 /* ---------- 2D Radar Minimap Renderer ---------- */
 const mapCtx = $("minimap").getContext("2d");
 const northEl = $("radar-north");
@@ -1065,12 +1126,16 @@ function update(dt) {
 
   for (const v of traffic) updateVehicle(dt, v, false);
   for (const n of pedestrians) {
-    if (n.hp <= 0 || n.stun > 0 || n.panic > 0) continue;
-
     const dx = n.g.position.x - P.x,
       dz = n.g.position.z - P.z;
     const dist = Math.hypot(dx, dz);
     if (dist > 220) continue;
+
+    // [ADDED] Prevent panicking, stunned, or knocked-back NPCs from passing through buildings
+    collideNPC(n);
+
+    if (n.hp <= 0 || n.stun > 0 || n.panic > 0) continue;
+
     const scared = keys.KeyH && dist < 12;
     n.wait -= dt;
     if (n.wait <= 0 && !scared && Math.random() < dt * 0.05)
@@ -1087,6 +1152,9 @@ function update(dt) {
       n.g.position.x = n.minX;
       n.dir = 1;
     }
+
+    // [ADDED] Prevent normal walking NPCs from clipping into buildings, stalls, or trees
+    collideNPC(n);
 
     const want = idle
       ? dist < 9
