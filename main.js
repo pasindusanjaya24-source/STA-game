@@ -114,6 +114,7 @@ function nearCols(x, z, pad = 0) {
 const player = createPlayer(scene);
 const { vehicles, traffic, pedestrians, targets } = spawnWorldEntities(scene);
 const allVehicles = [...vehicles, ...traffic];
+const sirenCars = allVehicles.filter(v => v.siren);
 
 // Enable shadow casting/receiving on dynamic vehicles, pedestrians & targets
 for (const v of allVehicles) {
@@ -287,7 +288,7 @@ function toggleVehicle() {
     aiming = false;
     $('crosshair').style.display = 'none';
     P.x = best.root.position.x; P.z = best.root.position.z;
-    const label = best.type === 'tuk' ? 'Tuk-Tuk' : (best.type === 'bus' ? 'CTB Bus' : 'Car');
+    const label = best.type === 'tuk' ? 'Tuk-Tuk' : (best.type === 'bus' ? 'CTB Bus' : (best.type === 'police' ? 'Police Car' : 'Car'));
     toast(`Driving ${label} — Press [M] for Taxi Mission!`);
   }
 }
@@ -308,11 +309,12 @@ function vehicleBlocked(x, z, v) {
 
 function updateVehicle(dt, v, playerControlled) {
   if (playerControlled) {
-    const maxFwd = v.type === 'bus' ? 11 : (v.type === 'tuk' ? 12.5 : 15);
+    const maxFwd = v.type === 'bus' ? 11 : (v.type === 'tuk' ? 12.5 : (v.type === 'police' ? 17 : 15));
     const accel = keys.KeyW ? maxFwd : (keys.KeyS ? -7.5 : 0);
     v.speed += (accel - v.speed) * Math.min(1, dt * 2.2);
     if (!keys.KeyW && !keys.KeyS) v.speed *= Math.exp(-1.5 * dt);
     const steer = (keys.KeyA ? 1 : 0) - (keys.KeyD ? 1 : 0);
+    v.steer = steer;
     v.yaw += steer * dt * (1.1 + Math.min(1, Math.abs(v.speed) / 5)) * Math.sign(v.speed || 1);
 
     const nx = v.root.position.x + Math.sin(v.yaw) * v.speed * dt;
@@ -363,7 +365,18 @@ function updateVehicle(dt, v, playerControlled) {
     if (v.root.position.x < bounds.x0 + 26) v.root.position.x = bounds.x1 - 26;
   }
   v.root.rotation.y = v.yaw;
-  v.wheels.forEach(w => { w.rotation.x -= v.speed * dt * 2.2; });
+  v.wheels.forEach(w => { w.rotation.x -= v.speed * dt * 2.2 / (v.type === 'bus' ? 1.2 : 1); });
+  if (!playerControlled) v.steer = 0;
+  // visual steering + body roll/pitch (squat on throttle, dive on brake, lean in corners)
+  const st = v.steer * 0.42;
+  for (const w of v.frontWheels) w.rotation.y += (st - w.rotation.y) * Math.min(1, dt * 10);
+  const acc = (v.speed - v._ps) / Math.max(dt, 1e-3);
+  v._ps = v.speed;
+  const k = Math.min(1, dt * 6);
+  const wantRoll = -v.steer * Math.min(1, Math.abs(v.speed) / 10) * (v.type === 'bus' ? 0.05 : 0.04);
+  const wantPitch = clamp(-acc * 0.0035, -0.045, 0.045);
+  v.body.rotation.z += (wantRoll - v.body.rotation.z) * k;
+  v.body.rotation.x += (wantPitch - v.body.rotation.x) * k;
 }
 
 function spawnTracer(start, end) {
@@ -490,6 +503,8 @@ function drawMinimap() {
 function update(dt) {
   gameMinutes += dt * 1.5;
   tick(dt);
+  const sirenPhase = Math.floor(performance.now() / 160) % 2 === 0;
+  for (const v of sirenCars) { v.siren[0].visible = sirenPhase; v.siren[1].visible = !sirenPhase; }
   if (shotCooldown > 0) shotCooldown -= dt;
   if (toastTimer > 0 && (toastTimer -= dt) <= 0) $('toast').style.display = 'none';
 
@@ -692,4 +707,4 @@ function loop(now) {
   if (!paused) update(dt);
   renderer.render(scene, camera);
 }
-requestAnimationFrame(loop);
+requestAnimationFrame(loop); 

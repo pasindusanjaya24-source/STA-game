@@ -1,5 +1,5 @@
 // entities.js — Player, optimized Sri Lankan vehicles (merged meshes), traffic & pedestrians
-import { merge, box, solidMat, BOUNDS } from './world.js';
+import { merge, box, part, solidMat, BOUNDS } from './world.js';
 import { buildHuman, animateHuman, randomOutfit, PLAYER_OUTFIT } from './Characters.js';
 export { animateHuman };
 const THREE = window.THREE;
@@ -38,60 +38,151 @@ export function createPlayer(scene) {
   };
 }
 
-const WHEEL_MAT = new THREE.MeshLambertMaterial({ color: 0x202428 });
-const wheelGeos = {};
-const wheelGeo = r => wheelGeos[r] || (wheelGeos[r] = new THREE.CylinderGeometry(r, r, 0.2, 10).rotateZ(Math.PI / 2));
+const shade = (hex, f) => new THREE.Color(hex).multiplyScalar(f).getHex();
+const RAD = Math.PI / 2;
 
-// Vehicle body = ONE merged mesh (vertex colours) + shared-geometry wheels => ~5 draw calls per vehicle
+// Wheel = tyre + rim + 6 spokes (so the spin is visible). One shared geometry per size.
+const wheelGeos = {};
+function wheelGeo(r, w) {
+  const k = r + '_' + w;
+  if (!wheelGeos[k]) {
+    const P = [
+      part(new THREE.CylinderGeometry(r, r, w, 14), 0x1b1d20, 0, 0, 0, { rz: RAD }),
+      part(new THREE.CylinderGeometry(r * 0.64, r * 0.64, w + 0.02, 10), 0xc5ccd3, 0, 0, 0, { rz: RAD }),
+      part(new THREE.CylinderGeometry(r * 0.2, r * 0.2, w + 0.05, 6), 0x6b7280, 0, 0, 0, { rz: RAD })
+    ];
+    for (let i = 0; i < 3; i++) P.push(box(w + 0.035, r * 0.11, r * 1.15, 0x7b8490, 0, 0, 0, { rx: i * Math.PI / 3 }));
+    wheelGeos[k] = merge(P);
+  }
+  return wheelGeos[k];
+}
+
+// Vehicle body = ONE merged mesh (vertex colours) + 4 shared-geometry wheels  => 5 draw calls per vehicle.
+// types: 'car' | 'police' | 'tuk' | 'bus'
 export function makeVehicle(scene, type, color) {
   const root = new THREE.Group();
+  const body = new THREE.Group();            // leans/pitches while driving
+  root.add(body);
   const P = [];
-  const ab = (w, h, d, col, x, y, z) => P.push(box(w, h, d, col, x, y, z));
-  const DARK = 0x202428, GLASS = 0x90d0e0, LIGHT = 0xfff3b0;
+  const ab = (w, h, d, col, x, y, z, o) => P.push(box(w, h, d, col, x, y, z, o || {}));
+  const cy = (rt, rb, h, seg, col, x, y, z, o) => P.push(part(new THREE.CylinderGeometry(rt, rb, h, seg), col, x, y, z, o || {}));
+  const DARK = 0x202428, GLASS = 0x8ccbe0, LIGHT = 0xfff3b0, TAIL = 0xd7263d, CHROME = 0xbfc5cb, BLACK = 0x15171a;
+  const trim = shade(color, 0.7);
+  let wheelDefs = [], siren = null;
 
-  if (type === 'tuk') {
-    // Classic Sri Lankan Three-Wheeler (Bajaj RE style)
-    ab(1.38, 0.72, 1.65, color, 0, 0.72, -0.15);
-    ab(1.02, 0.62, 0.85, color, 0, 0.68, 0.62);
-    ab(1.16, 0.65, 0.06, GLASS, 0, 1.32, 0.56);
-    ab(1.42, 0.12, 1.85, DARK, 0, 1.8, -0.15); // canopy hood
-    for (const sx of [-0.65, 0.65]) {
-      ab(0.07, 0.85, 0.07, color, sx, 1.38, 0.52);
-      ab(0.07, 0.85, 0.07, color, sx, 1.38, -0.92);
+  const sedan = () => {
+    ab(1.86, 0.46, 3.9, color, 0, 0.56, 0);                         // lower body
+    ab(1.88, 0.05, 3.9, trim, 0, 0.8, 0);                            // beltline
+    ab(1.8, 0.1, 1.15, color, 0, 0.85, 1.3, { rx: 0.09 });           // hood
+    ab(1.8, 0.1, 0.9, color, 0, 0.85, -1.45, { rx: -0.05 });         // boot lid
+    ab(1.62, 0.44, 1.6, GLASS, 0, 1.1, -0.3);                        // side glass band
+    ab(1.56, 0.5, 0.06, GLASS, 0, 1.12, 0.62, { rx: -0.55 });        // windscreen
+    ab(1.56, 0.46, 0.06, GLASS, 0, 1.1, -1.2, { rx: 0.6 });          // rear screen
+    ab(1.58, 0.07, 1.75, color, 0, 1.36, -0.25);                     // roof
+    for (const sx of [-0.8, 0.8]) {                                  // pillars
+      ab(0.07, 0.5, 0.07, color, sx, 1.12, 0.62, { rx: -0.55 });
+      ab(0.08, 0.44, 0.09, color, sx * 1.01, 1.1, -0.3);
+      ab(0.1, 0.46, 0.12, color, sx, 1.1, -1.2, { rx: 0.6 });
     }
-    ab(0.28, 0.2, 0.1, LIGHT, 0, 0.85, 1.06);
-  } else if (type === 'bus') {
-    // Iconic Sri Lankan CTB / private route bus
-    ab(2.3, 2.05, 5.8, color, 0, 1.25, 0);
-    ab(2.34, 0.28, 5.84, 0xf5c518, 0, 1.05, 0);
-    ab(2.15, 0.85, 0.08, GLASS, 0, 1.75, 2.88);
-    ab(2.35, 0.18, 5.9, 0xeeeee8, 0, 2.34, 0); // cream roof
-    for (const sx of [-0.8, 0.8]) ab(0.32, 0.2, 0.1, LIGHT, sx, 0.65, 2.92);
-    for (const side of [-1, 1]) for (let j = 0; j < 4; j++) ab(0.04, 0.65, 0.78, GLASS, side * 1.16, 1.75, -1.85 + j * 1.18);
-  } else {
-    ab(1.88, 0.58, 3.6, color, 0, 0.62, 0);
-    ab(1.58, 0.62, 1.7, GLASS, 0, 1.18, -0.22);
-    ab(1.62, 0.12, 1.45, color, 0, 1.5, -0.25);
-    for (const sx of [-0.65, 0.65]) ab(0.3, 0.16, 0.1, LIGHT, sx, 0.68, 1.81);
-  }
-  root.add(new THREE.Mesh(merge(P), solidMat));
+    ab(1.9, 0.2, 0.2, 0x2b2f33, 0, 0.36, 1.97); ab(1.9, 0.2, 0.2, 0x2b2f33, 0, 0.36, -1.97);   // bumpers
+    ab(0.9, 0.14, 0.05, CHROME, 0, 0.62, 1.96);                                               // grille
+    for (const sx of [-1, 1]) {
+      ab(0.34, 0.15, 0.1, LIGHT, sx * 0.66, 0.68, 1.95);                                     // headlights
+      ab(0.38, 0.14, 0.08, TAIL, sx * 0.64, 0.7, -1.95);                                     // tail lights
+      ab(0.2, 0.1, 0.12, color, sx * 1.0, 0.98, 0.45);                                       // mirrors
+      ab(0.02, 0.44, 0.025, BLACK, sx * 0.935, 0.56, 0.45); ab(0.02, 0.44, 0.025, BLACK, sx * 0.935, 0.56, -0.5);
+      ab(0.03, 0.03, 0.14, CHROME, sx * 0.94, 0.72, 0.1); ab(0.03, 0.03, 0.14, CHROME, sx * 0.94, 0.72, -0.8);
+      for (const wz of [1.28, -1.28]) cy(0.43, 0.43, 0.05, 12, BLACK, sx * 0.935, 0.36, wz, { rz: RAD }); // wheel arches
+    }
+    ab(0.5, 0.13, 0.03, 0xf2f2f2, 0, 0.44, 2.0); ab(0.5, 0.13, 0.03, 0xf2f2f2, 0, 0.44, -2.0);  // plates
+    wheelDefs = [[-0.93, 0.36, 1.28, 0.36, 0.24, 1], [0.93, 0.36, 1.28, 0.36, 0.24, 1], [-0.93, 0.36, -1.28, 0.36, 0.24, 0], [0.93, 0.36, -1.28, 0.36, 0.24, 0]];
+  };
 
-  const wheelRadius = type === 'tuk' ? 0.28 : (type === 'bus' ? 0.44 : 0.35);
-  const geo = wheelGeo(wheelRadius);
-  const wheels = [];
-  const addWheel = (x, y, z) => { const w = new THREE.Mesh(geo, WHEEL_MAT); w.position.set(x, y, z); root.add(w); wheels.push(w); };
-  if (type === 'tuk') {
-    addWheel(0, 0.3, 0.92);
-    for (const x of [-0.74, 0.74]) addWheel(x, 0.3, -0.68);
+  if (type === 'car' || type === 'police') {
+    sedan();
+    if (type === 'police') {
+      ab(1.88, 0.12, 3.92, 0x1d4ed8, 0, 0.6, 0);                         // blue stripe
+      ab(0.96, 0.08, 0.32, 0x1a1a1a, 0, 1.43, -0.3);                      // light-bar base
+      ab(0.4, 0.14, 0.05, 0x1d4ed8, 0, 0.86, 1.62, { rx: 0.09 });         // hood badge
+    }
+  } else if (type === 'tuk') {
+    // Bajaj-style three-wheeler
+    ab(1.2, 0.12, 2.1, 0x2a2a2a, 0, 0.3, 0);                                // chassis
+    ab(1.38, 0.62, 1.5, color, 0, 0.7, -0.3);                               // rear body
+    ab(1.39, 0.08, 1.51, trim, 0, 0.99, -0.3);                              // trim stripe
+    ab(0.96, 0.6, 0.8, color, 0, 0.72, 0.62);                               // front cowl
+    cy(0.48, 0.48, 0.62, 10, color, 0, 0.74, 0.98);                         // rounded nose
+    ab(0.26, 0.06, 0.55, color, 0, 0.6, 1.2);                               // front mudguard
+    cy(0.13, 0.13, 0.1, 10, LIGHT, 0, 0.95, 1.25, { rx: RAD });             // round headlight
+    ab(0.98, 0.55, 0.05, GLASS, 0, 1.3, 0.45, { rx: -0.25 });               // windscreen
+    ab(0.7, 0.04, 0.04, 0x2a2a2a, 0, 1.03, 0.8);                            // handlebar
+    for (const sx of [-1, 1]) {
+      cy(0.03, 0.03, 0.12, 6, 0x111111, sx * 0.38, 1.03, 0.8, { rz: RAD });
+      ab(0.1, 0.07, 0.02, CHROME, sx * 0.42, 1.14, 0.8);                    // mirrors
+      ab(0.04, 0.2, 1.5, trim, sx * 0.68, 1.1, -0.3);                       // side rails
+      ab(0.06, 0.9, 0.06, color, sx * 0.66, 1.35, 0.5); ab(0.06, 0.9, 0.06, color, sx * 0.66, 1.35, -1.0);
+      ab(0.12, 0.1, 0.04, TAIL, sx * 0.5, 0.82, -1.07);                     // tail lights
+    }
+    ab(0.8, 0.1, 0.5, 0x3a2a1e, 0, 0.88, 0.2); ab(0.8, 0.4, 0.08, 0x3a2a1e, 0, 1.08, -0.05);        // driver seat
+    ab(1.2, 0.1, 0.55, 0x3a2a1e, 0, 0.9, -0.7); ab(1.2, 0.45, 0.08, 0x3a2a1e, 0, 1.12, -1.0);       // passenger bench
+    ab(1.44, 0.1, 1.9, DARK, 0, 1.82, -0.25);                               // canopy
+    ab(1.2, 0.08, 0.32, DARK, 0, 1.8, 0.82, { rx: 0.2 });                   // visor
+    ab(0.32, 0.12, 0.02, 0xf2f2f2, 0, 0.62, -1.08);                         // plate
+    wheelDefs = [[0, 0.28, 1.05, 0.28, 0.16, 1], [-0.74, 0.28, -0.68, 0.28, 0.18, 0], [0.74, 0.28, -0.68, 0.28, 0.18, 0]];
   } else {
-    const wx = type === 'bus' ? 1.14 : 0.92, wz = type === 'bus' ? 2.05 : 1.18;
-    for (const x of [-wx, wx]) for (const z of [-wz, wz]) addWheel(x, wheelRadius, z);
+    // CTB bus
+    const cream = 0xeeeee8;
+    ab(2.3, 1.0, 5.8, color, 0, 0.72, 0);                                   // lower body
+    ab(2.3, 0.95, 5.8, color, 0, 1.7, 0);                                   // upper body
+    ab(2.34, 0.2, 5.84, 0xf5c518, 0, 1.2, 0);                               // yellow stripe
+    ab(2.34, 0.1, 5.84, 0xffffff, 0, 0.96, 0);                              // white stripe
+    ab(2.32, 0.14, 5.9, cream, 0, 2.25, 0);                                 // roof
+    ab(0.6, 0.1, 0.9, 0xd6d6d0, 0, 2.37, 1.0); ab(0.6, 0.1, 0.9, 0xd6d6d0, 0, 2.37, -1.2);       // roof vents
+    for (const sx of [-0.52, 0.52]) ab(1.0, 0.8, 0.06, GLASS, sx, 1.72, 2.9);                    // split windscreen
+    ab(0.06, 0.8, 0.08, color, 0, 1.72, 2.91);
+    ab(1.4, 0.22, 0.06, 0xffd54a, 0, 2.1, 2.92); ab(0.9, 0.06, 0.07, 0x222222, 0, 2.1, 2.93);    // route board
+    ab(1.3, 0.4, 0.06, 0x2a2a2a, 0, 0.6, 2.92); ab(1.3, 0.04, 0.07, CHROME, 0, 0.8, 2.93);       // grille
+    ab(2.36, 0.2, 0.22, 0x3a3a3a, 0, 0.3, 2.95); ab(2.36, 0.2, 0.22, 0x3a3a3a, 0, 0.3, -2.95);  // bumpers
+    ab(0.5, 0.14, 0.03, 0xf2f2f2, 0, 0.3, 3.07);
+    ab(1.6, 0.6, 0.06, GLASS, 0, 1.8, -2.92);                               // rear window
+    for (const sx of [-1, 1]) {
+      cy(0.16, 0.16, 0.1, 10, LIGHT, sx * 0.8, 0.62, 2.92, { rx: RAD });    // headlights
+      ab(0.14, 0.1, 0.06, 0xffa000, sx * 1.0, 0.9, 2.92);                   // indicators
+      ab(0.2, 0.16, 0.06, TAIL, sx * 0.9, 0.8, -2.93);                      // tail lights
+      ab(0.5, 0.04, 0.04, 0x222222, sx * 1.4, 1.7, 2.7); ab(0.08, 0.4, 0.2, CHROME, sx * 1.65, 1.7, 2.7); // mirrors
+      for (let j = 0; j < 4; j++) ab(0.04, 0.62, 0.9, GLASS, sx * 1.16, 1.78, -1.8 + j * 1.2 - (sx > 0 ? 0 : 0));
+      for (const wz of [2.05, -2.05]) cy(0.55, 0.55, 0.05, 12, BLACK, sx * 1.15, 0.44, wz, { rz: RAD });
+    }
+    ab(0.05, 1.6, 0.9, 0x2b4a5c, 1.17, 1.0, 1.9);                            // front door (left side)
+    ab(0.05, 0.8, 0.04, 0xf5c518, 1.2, 1.0, 1.5);                            // door rail
+    wheelDefs = [[-1.14, 0.44, 2.05, 0.44, 0.3, 1], [1.14, 0.44, 2.05, 0.44, 0.3, 1], [-1.14, 0.44, -2.05, 0.44, 0.3, 0], [1.14, 0.44, -2.05, 0.44, 0.3, 0]];
+  }
+  body.add(new THREE.Mesh(merge(P), solidMat));
+
+  if (type === 'police') {
+    const mk = (c, x) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 0.26), new THREE.MeshBasicMaterial({ color: c }));
+      m.position.set(x, 1.5, -0.3);
+      body.add(m);
+      return m;
+    };
+    siren = [mk(0xff2a2a, -0.22), mk(0x2a6bff, 0.22)];
+  }
+
+  const wheels = [], frontWheels = [];
+  for (const [x, y, z, r, w, front] of wheelDefs) {
+    const m = new THREE.Mesh(wheelGeo(r, w), solidMat);
+    m.position.set(x, y, z);
+    m.rotation.order = 'YXZ';                // steer (Y) after spin (X)
+    root.add(m);
+    wheels.push(m);
+    if (front) frontWheels.push(m);
   }
 
   scene.add(root);
   return {
-    root, type, speed: 0, yaw: Math.PI / 2, wheels, color,
-    radius: type === 'bus' ? 2.6 : (type === 'car' ? 1.7 : 1.15)
+    root, body, type, speed: 0, yaw: Math.PI / 2, wheels, frontWheels, siren, color, steer: 0, _ps: 0,
+    radius: type === 'bus' ? 2.6 : (type === 'tuk' ? 1.15 : 1.7)
   };
 }
 
@@ -115,6 +206,7 @@ export function spawnWorldEntities(scene) {
   addDriveable('tuk', 26, -6.4, 0xd0342c);      // Red tuk
   addDriveable('tuk', 20, -24, 0x139a5b, 0);  // Green tuk on Village Lane
   addDriveable('car', -92, 5.9, 0x2a6fb5);      // Blue sedan
+  addDriveable('police', -70, -6.1, 0xf2f4f6);  // Police car
   addDriveable('bus', -34, 5.8, 0xb91c1c);      // Red CTB bus
   addDriveable('tuk', 235, 5.8, 0xf6b800);      // Colombo
   addDriveable('bus', 238, -6.2, 0xb91c1c);     // Colombo bus
@@ -152,8 +244,8 @@ export function spawnWorldEntities(scene) {
     traffic.push(v);
   };
   for (let i = 0; i < 9; i++) {
-    makeTraffic(i % 3 === 0 ? 'tuk' : 'car', -330 + i * 72, -2.35, 1, [0xd0342c, 0x2a6fb5, 0xe6e6e6, 0x3c9a55][i % 4]);
-    makeTraffic(i % 3 === 1 ? 'bus' : 'car', 330 - i * 72, 2.35, -1, [0xb91c1c, 0xd9d9d9, 0xe0b52b][i % 3]);
+    makeTraffic(i === 5 ? 'police' : (i % 3 === 0 ? 'tuk' : 'car'), -330 + i * 72, -2.35, 1, i === 5 ? 0xf2f4f6 : [0xd0342c, 0x2a6fb5, 0xe6e6e6, 0x3c9a55][i % 4]);
+    makeTraffic(i === 2 ? 'police' : (i % 3 === 1 ? 'bus' : 'car'), 330 - i * 72, 2.35, -1, i === 2 ? 0xf2f4f6 : [0xb91c1c, 0xd9d9d9, 0xe0b52b][i % 3]);
   }
   for (let i = 0; i < 3; i++) {
     makeTraffic(i === 1 ? 'bus' : 'tuk', -250 + i * 180, 197.65, 1, [0xf6b800, 0xb91c1c, 0x139a5b][i]);
