@@ -51,9 +51,10 @@ export function buildHuman(o, detail = true) {
   /* ---- legs & shaped footwear ---- */
   const legs = [],
     knees = [];
-  const shoe = o.shoes ?? 0xf2f2f2,
-    soleCol = shade(shoe, 0.42);
-  const shoeH = o.sandals ? 0.03 : 0.075;
+  // [CHANGED] Allow barefoot NPCs (temple devotees & beachgoers) by using skin color when o.barefoot is true
+  const shoe = o.barefoot ? skin : (o.shoes ?? 0xf2f2f2),
+    soleCol = o.barefoot ? skinD : shade(shoe, 0.42);
+  const shoeH = o.barefoot ? 0.025 : o.sandals ? 0.03 : 0.075;
   const thighCol = bottom === "pants" || bottom === "shorts" ? pantsC : skin;
   const shinCol = bottom === "pants" ? pantsD : skin;
 
@@ -532,7 +533,8 @@ export const PLAYER_OUTFIT = {
   shoes: 0xf4f4f4,
 };
 
-export function randomOutfit(beach = false) {
+// [CHANGED] Replaced boolean `beach` with zone dress codes: "temple" (all white, barefoot), "beach" (swimwear/floral), and "normal" (everyday street wear)
+export function randomOutfit(zone = "normal") {
   const skin = pick(SKINS),
     female = Math.random() < 0.45;
   const base = {
@@ -542,21 +544,77 @@ export function randomOutfit(beach = false) {
     hairStyle: female ? pick(["long", "long", "bun"]) : "short",
     scale: 0.92 + Math.random() * 0.1,
   };
-  if (beach) {
+
+  // 1. TEMPLE DRESS CODE: Modest all-white attire, no caps, barefoot
+  if (zone === "temple") {
+    const whites = [0xf8fafc, 0xf1f5f9, 0xfffdf7];
+    const wShirt = pick(whites);
+    if (female) {
+      return Math.random() < 0.65
+        ? {
+            ...base,
+            female: true,
+            hairStyle: pick(["bun", "long"]),
+            shirt: wShirt,
+            saree: pick(whites),
+            bottom: "saree",
+            sleeve: "short",
+            barefoot: true,
+          }
+        : {
+            ...base,
+            female: true,
+            hairStyle: pick(["bun", "long"]),
+            shirt: wShirt,
+            skirt: pick(whites),
+            bottom: "skirt",
+            sleeve: "short",
+            barefoot: true,
+          };
+    }
     return {
       ...base,
-      shirt: pick(TEES),
+      female: false,
+      hairStyle: "short",
+      shirt: wShirt,
+      sarong: pick(whites),
+      bottom: "sarong",
       sleeve: "short",
+      barefoot: true,
+    };
+  }
+
+  // 2. BEACH DRESS CODE: Swim trunks, sleeveless tanks, bright floral shirts, barefoot/sandals
+  if (zone === "beach") {
+    const beachShorts = [0x2f9ec7, 0xe85d4a, 0xf2b632, 0x10b981, 0x0ea5e9];
+    if (female) {
+      return {
+        ...base,
+        shirt: pick([0xff6b8b, 0xfacc15, 0x38bdf8, 0xffffff, 0xfb923c]),
+        sleeve: "none",
+        bottom: Math.random() < 0.5 ? "shorts" : "skirt",
+        pants: pick(beachShorts),
+        skirt: pick(beachShorts),
+        barefoot: true,
+      };
+    }
+    const shirtless = Math.random() < 0.45;
+    return {
+      ...base,
+      shirt: shirtless ? skin : pick([0x1fa39e, 0xe85d4a, 0xfacc15, 0x38bdf8]),
+      pattern: shirtless ? undefined : "floral",
+      sleeve: shirtless ? "none" : "short",
       bottom: "shorts",
-      pants: pick([0x2f9ec7, 0xe85d4a, 0xf2b632, 0x1f2937]),
-      sandals: true,
-      shoes: 0x3a3a3a,
-      hairStyle: female ? base.hairStyle : pick(["short", "cap"]),
+      pants: pick(beachShorts),
+      barefoot: true,
+      hairStyle: pick(["short", "cap"]),
       capCol: pick([0xe85d4a, 0xf2f2f2, 0x2f6fb5]),
     };
   }
+
+  // 3. NORMAL CITY / STREET DRESS CODE
   const r = Math.random();
-  if (r < 0.18)
+  if (r < 0.22)
     return {
       ...base,
       shirt: pick(TEES),
@@ -564,7 +622,7 @@ export function randomOutfit(beach = false) {
       bottom: "pants",
       shoes: pick([0xf2f2f2, 0x222222]),
     };
-  if (r < 0.3)
+  if (r < 0.36)
     return {
       ...base,
       shirt: pick([0x1fa39e, 0xe85d4a, 0x2f6fb5]),
@@ -574,7 +632,7 @@ export function randomOutfit(beach = false) {
       pants: pick([0xd8cdb4, 0x4a6fa5]),
       shoes: 0xf2f2f2,
     };
-  if (r < 0.46)
+  if (r < 0.5)
     return {
       ...base,
       female: false,
@@ -586,7 +644,7 @@ export function randomOutfit(beach = false) {
       sandals: true,
       shoes: 0x2a2420,
     };
-  if (r < 0.62) {
+  if (r < 0.64) {
     const c = pick(SAREES);
     return {
       ...base,
@@ -600,7 +658,7 @@ export function randomOutfit(beach = false) {
       shoes: 0x2a2420,
     };
   }
-  if (r < 0.72) {
+  if (r < 0.74) {
     const boy = Math.random() < 0.5;
     return {
       ...base,
@@ -616,7 +674,7 @@ export function randomOutfit(beach = false) {
       scale: 0.8 + Math.random() * 0.06,
     };
   }
-  if (r < 0.84)
+  if (r < 0.88)
     return {
       ...base,
       female: false,
@@ -628,19 +686,6 @@ export function randomOutfit(beach = false) {
       pants: 0x1f2227,
       bottom: "pants",
       shoes: 0x1a1a1a,
-    };
-  if (r < 0.92)
-    return {
-      ...base,
-      female: false,
-      hairStyle: "cap",
-      capCol: 0xd8cdb4,
-      shirt: 0xc9b98a,
-      sleeve: "short",
-      collar: 0xc9b98a,
-      pants: 0xb9a878,
-      bottom: "pants",
-      shoes: 0x2a2420,
     };
   return {
     ...base,
