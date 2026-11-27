@@ -1045,11 +1045,18 @@ function update(dt) {
     P.turnSmooth += (turnRate - P.turnSmooth) * Math.min(1, dt * 10);
 
     if (P.ground) P.walkT += dt * sp * 2.2;
+
+    const fwdSpeed = P.vx * Math.sin(P.rot) + P.vz * Math.cos(P.rot);
+    const sideSpeed = P.vx * Math.cos(P.rot) - P.vz * Math.sin(P.rot);
+
     player.animate(P.walkT, sp, P.ground, armed, aiming, {
       velY: P.vy,
       turn: P.turnSmooth,
       lookPitch: armed ? -pitch * 0.65 : 0,
+      fwdSpeed,
+      sideSpeed,
     });
+
     player.g.position.set(P.x, P.y, P.z);
     player.g.rotation.y = P.rot;
     player.blob.position.set(P.x, 0.14, P.z);

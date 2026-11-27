@@ -90,6 +90,7 @@ export function buildHuman(o, detail = true) {
 
   for (const s of [-1, 1]) {
     const lg = new THREE.Group();
+    lg.rotation.order = "YXZ"; // [ADDED] Apply Y-turn before X-swing so knees always bend forward cleanly
     lg.position.set(s * (female ? 0.105 : 0.115), hipY, 0);
     g.add(lg);
 
@@ -399,13 +400,34 @@ export function animateHuman(h, t, speed, ground, opt = {}) {
     const squash = opt.land || 0;
     const turn = Math.max(-1.5, Math.min(1.5, opt.turn || 0));
 
-    legL.rotation.set(sn * amp - squash * 0.36, 0, 0);
-    legR.rotation.set(-sn * amp - squash * 0.36, 0, 0);
+    // [CHANGED] Symmetrical left/right tactical strafe + backward walk without legs crossing
+    const fwd = opt.fwdSpeed ?? speed;
+    const side = opt.sideSpeed ?? 0;
+    const dirSign = fwd < -0.25 ? -1 : 1;
+    const strafeRatio =
+      speed > 0.1
+        ? Math.min(1, Math.abs(side) / (Math.abs(fwd) + Math.abs(side)))
+        : 0;
+
+    // Turn lower body smoothly toward left/right strafe direction (up to ~38 deg)
+    const legYaw = opt.armed
+      ? Math.atan2(side, Math.abs(fwd) + 0.45) * 0.72 * walk
+      : 0;
+
+    const stride = sn * amp * dirSign * (1 - strafeRatio * 0.35);
+    // Outward-only lateral step (Math.max(0, ...)) so legs never swing inward through each other
+    const outStepL = Math.max(0, sn) * amp * 0.28 * strafeRatio;
+    const outStepR = Math.max(0, -sn) * amp * 0.28 * strafeRatio;
+
+    legL.rotation.set(stride - squash * 0.36, legYaw, outStepL);
+    legR.rotation.set(-stride - squash * 0.36, legYaw, -outStepR);
 
     if (h.knees.length) {
       const kb = (0.76 + 0.56 * run) * walk;
-      h.knees[0].rotation.x = Math.max(0, -cs) * kb + squash * 0.72;
-      h.knees[1].rotation.x = Math.max(0, cs) * kb + squash * 0.72;
+      const kneePhaseL = dirSign > 0 ? -cs : cs;
+      const kneePhaseR = dirSign > 0 ? cs : -cs;
+      h.knees[0].rotation.x = Math.max(0, kneePhaseL) * kb + squash * 0.72;
+      h.knees[1].rotation.x = Math.max(0, kneePhaseR) * kb + squash * 0.72;
     }
 
     if (opt.panic) {
@@ -429,6 +451,7 @@ export function animateHuman(h, t, speed, ground, opt = {}) {
     h.upper.rotation.x = 0.03 + 0.24 * run * walk + squash * 0.24;
     h.upper.rotation.y = sn * 0.12 * walk;
     h.upper.rotation.z = -turn * 0.16 * (0.25 + 0.75 * walk);
+    h.upper.position.x = -Math.sin(legYaw) * 0.03 * walk;
     h.upper.position.y =
       h.hipY -
       squash * 0.13 +
