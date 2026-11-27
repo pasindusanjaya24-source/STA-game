@@ -1,4 +1,4 @@
-// entities.js — Player, gun placement, bullets, NPC damage/panic/death, vehicles & traffic
+// entities.js — Player, gun placement, bullets, NPC damage/panic/death, hit callbacks, vehicles & traffic
 import { merge, box, part, solidMat, BOUNDS } from "./world.js";
 import {
   buildHuman,
@@ -229,7 +229,7 @@ export function shootGun(scene, player, entities) {
 }
 
 // Call when player punches without a gun
-export function punchAttack(scene, player, entities) {
+export function punchAttack(scene, player, entities, onHit = null) {
   player.triggerPunch();
   const origin = player.g.position;
   const yaw = player.g.rotation.y;
@@ -249,14 +249,15 @@ export function punchAttack(scene, player, entities) {
         ...spawnHitSparks(scene, p.g.position.clone().setY(1.2), true),
       );
       alertNearbyNPCs(entities.pedestrians, origin, 18);
+      if (onHit) onHit(false);
       break;
     }
   }
 }
 
-// Call every frame in your game loop: updateCombat(scene, entities, dt)
-export function updateCombat(scene, entities, dt) {
-  // 1. Update bullets & check hits on NPCs, targets, and vehicles
+// Call every frame in your game loop: updateCombat(scene, entities, dt, onHit)
+export function updateCombat(scene, entities, dt, onHit = null) {
+  // 1. Update bullets & check hits on NPCs and targets
   for (let i = entities.bullets.length - 1; i >= 0; i--) {
     const b = entities.bullets[i];
     const step = b.vel.clone().multiplyScalar(dt);
@@ -271,11 +272,12 @@ export function updateCombat(scene, entities, dt) {
       if (p.hp <= 0) continue;
       const dx = b.pos.x - p.g.position.x;
       const dz = b.pos.z - p.g.position.z;
-      if (dx * dx + dz * dz < 0.32 && b.pos.y >= 0.1 && b.pos.y <= 1.85) {
+      if (dx * dx + dz * dz < 0.34 && b.pos.y >= 0.1 && b.pos.y <= 1.85) {
         const isHeadshot = b.pos.y >= 1.42;
         const dir = b.vel.clone().normalize();
         damageNPC(scene, p, 50, dir.x * 7.5, dir.z * 7.5, isHeadshot);
         entities.sparks.push(...spawnHitSparks(scene, b.pos, true));
+        if (onHit) onHit(isHeadshot);
         hit = true;
         break;
       }

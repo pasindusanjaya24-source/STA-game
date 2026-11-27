@@ -1,4 +1,4 @@
-// characters.js — realistic low-poly rigged humans (player + interactive NPCs)
+// Characters.js — realistic low-poly rigged humans (player + interactive NPCs)
 import { merge, box, part, solidMat } from "./world.js";
 const THREE = window.THREE;
 
@@ -462,19 +462,26 @@ export function animateHuman(h, t, speed, ground, opt = {}) {
   // Armed Gun Aiming & Recoil
   if (opt.armed) {
     const kick = opt.recoil || 0;
+    const aimPitch = opt.lookPitch || 0;
     h.upper.rotation.y = 0;
 
     if (opt.aiming) {
-      armR.rotation.set(-1.52 - kick * 0.3, 0, -0.03);
-      armL.rotation.set(-1.28 - kick * 0.16, 0, 0.34);
+      armR.rotation.set(-1.52 + aimPitch - kick * 0.3, 0, -0.03);
+      armL.rotation.set(-1.28 + aimPitch - kick * 0.16, 0, 0.34);
       if (h.elbows.length) {
         h.elbows[1].rotation.x = -0.06 - kick * 0.22;
         h.elbows[0].rotation.x = -0.84;
       }
-      h.upper.rotation.x = 0.03 - kick * 0.05;
+      h.upper.rotation.x = 0.03 - aimPitch * 0.25 - kick * 0.05;
     } else {
-      armR.rotation.set(-0.58 - kick * 0.22, 0, -0.1);
-      if (h.elbows.length) h.elbows[1].rotation.x = -1.08;
+      // Points gun toward crosshair whenever gun is active
+      armR.rotation.set(-1.42 + aimPitch - kick * 0.26, 0, -0.04);
+      armL.rotation.set(-1.05 + aimPitch * 0.6 - kick * 0.12, 0, 0.3);
+      if (h.elbows.length) {
+        h.elbows[1].rotation.x = -0.16 - kick * 0.2;
+        h.elbows[0].rotation.x = -0.92;
+      }
+      h.upper.rotation.x = 0.04 - aimPitch * 0.2;
     }
   }
 }

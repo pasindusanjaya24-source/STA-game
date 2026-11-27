@@ -1,4 +1,4 @@
-// main.js — Core Engine, Shadows, Sound FX, Missions, Radar Minimap, Physics & Loop
+// main.js — Core Engine, Hit-Marker Crosshair, Sensitivity Slider, Combat & Loop
 import { buildWorld, clamp, PAL } from "./world.js";
 import {
   createPlayer,
@@ -12,7 +12,7 @@ import {
 const THREE = window.THREE;
 const $ = (id) => document.getElementById(id);
 
-/* ---------- Procedural Web Audio Engine (Zero External Files Needed) ---------- */
+/* ---------- Procedural Web Audio Engine ---------- */
 class SoundEngine {
   constructor() {
     this.ctx = null;
@@ -56,9 +56,15 @@ class SoundEngine {
     this.init();
     this.playTone(160, "triangle", 0.12, 0.22, 55);
   }
-  hit() {
+  hit(headshot = false) {
     this.init();
-    this.playTone(680, "triangle", 0.1, 0.18, 220);
+    this.playTone(
+      headshot ? 980 : 680,
+      "triangle",
+      0.11,
+      0.22,
+      headshot ? 420 : 220,
+    );
   }
   cash() {
     this.init();
@@ -68,7 +74,120 @@ class SoundEngine {
 }
 const sfx = new SoundEngine();
 
-// Renderer & Tone Mapping — rich contrast without washing out colors
+/* ---------- Center Screen Crosshair + Hit-Marker Setup ---------- */
+function setupCrosshair() {
+  let el = $("crosshair");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "crosshair";
+    document.body.appendChild(el);
+  }
+  el.style.cssText = `
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    width: 30px;
+    height: 30px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 999;
+    display: none;
+    transition: transform 0.08s ease-out;
+  `;
+  el.innerHTML = `
+    <div class="ch-dot" style="position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:#ffffff;box-shadow:0 0 3px #000;"></div>
+    <div class="ch-line" style="position:absolute;left:50%;top:0;width:2px;height:7px;margin-left:-1px;background:#ffffff;box-shadow:0 0 2px #000;"></div>
+    <div class="ch-line" style="position:absolute;left:50%;bottom:0;width:2px;height:7px;margin-left:-1px;background:#ffffff;box-shadow:0 0 2px #000;"></div>
+    <div class="ch-line" style="position:absolute;top:50%;left:0;width:7px;height:2px;margin-top:-1px;background:#ffffff;box-shadow:0 0 2px #000;"></div>
+    <div class="ch-line" style="position:absolute;top:50%;right:0;width:7px;height:2px;margin-top:-1px;background:#ffffff;box-shadow:0 0 2px #000;"></div>
+    <div id="hitmarker" style="position:absolute;inset:0;opacity:0;transform:scale(0.8);pointer-events:none;transition:opacity 0.06s linear;">
+      <div class="hm-tick" style="position:absolute;left:50%;top:50%;width:9px;height:2px;background:#ffffff;box-shadow:0 0 3px #000;transform:translate(-13px,-9px) rotate(45deg);"></div>
+      <div class="hm-tick" style="position:absolute;left:50%;top:50%;width:9px;height:2px;background:#ffffff;box-shadow:0 0 3px #000;transform:translate(4px,-9px) rotate(-45deg);"></div>
+      <div class="hm-tick" style="position:absolute;left:50%;top:50%;width:9px;height:2px;background:#ffffff;box-shadow:0 0 3px #000;transform:translate(-13px,7px) rotate(-45deg);"></div>
+      <div class="hm-tick" style="position:absolute;left:50%;top:50%;width:9px;height:2px;background:#ffffff;box-shadow:0 0 3px #000;transform:translate(4px,7px) rotate(45deg);"></div>
+    </div>
+  `;
+  return el;
+}
+const crosshairEl = setupCrosshair();
+const hitmarkerEl = $("hitmarker");
+let hitMarkerTimer = 0;
+
+function triggerHitMarker(isHeadshot = false) {
+  hitMarkerTimer = 0.2;
+  sfx.hit(isHeadshot);
+  if (!hitmarkerEl) return;
+  const col = isHeadshot ? "#ff2e2e" : "#ffffff";
+  hitmarkerEl.querySelectorAll(".hm-tick").forEach((t) => {
+    t.style.background = col;
+  });
+  hitmarkerEl.style.opacity = "1";
+  hitmarkerEl.style.transform = isHeadshot ? "scale(1.4)" : "scale(1.18)";
+}
+
+function updateCrosshairUI(visible, isAiming, onTarget) {
+  const show = visible || hitMarkerTimer > 0;
+  crosshairEl.style.display = show ? "block" : "none";
+  if (!show) return;
+
+  const color = onTarget ? "#ff3b3b" : "#ffffff";
+  const sc = isAiming ? (onTarget ? 0.85 : 0.75) : onTarget ? 1.15 : 1.0;
+  crosshairEl.style.transform = `translate(-50%, -50%) scale(${sc})`;
+  crosshairEl.querySelectorAll(".ch-dot, .ch-line").forEach((part) => {
+    part.style.opacity = visible ? "1" : "0";
+    part.style.background = color;
+  });
+}
+
+/* ---------- On-Screen Mouse Sensitivity Slider in Pause Menu ---------- */
+let sensMultiplier =
+  parseFloat(localStorage.getItem("lanka_mouse_sens")) || 1.0;
+
+function setupSensitivityControl() {
+  const ov = $("ov");
+  if (!ov || $("sens-wrap")) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = "sens-wrap";
+  wrap.style.cssText = `
+    margin: 14px 0 18px;
+    padding: 10px 16px;
+    background: rgba(15, 23, 42, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    min-width: 240px;
+    color: #f8fafc;
+    font-family: sans-serif;
+    font-size: 13px;
+  `;
+  wrap.innerHTML = `
+    <div style="width:100%;display:flex;justify-content:space-between;font-weight:600;letter-spacing:0.4px;">
+      <span>MOUSE SENSITIVITY</span>
+      <span id="sens-val" style="color:#facc15;">${sensMultiplier.toFixed(2)}x</span>
+    </div>
+    <input id="sens-slider" type="range" min="0.2" max="2.5" step="0.05" value="${sensMultiplier}"
+      style="width:100%;accent-color:#facc15;cursor:pointer;" />
+  `;
+
+  const goBtn = $("go");
+  if (goBtn && goBtn.parentNode === ov) ov.insertBefore(wrap, goBtn);
+  else ov.appendChild(wrap);
+
+  const slider = $("sens-slider");
+  const valLabel = $("sens-val");
+  slider.addEventListener("input", (e) => {
+    sensMultiplier = parseFloat(e.target.value);
+    valLabel.textContent = sensMultiplier.toFixed(2) + "x";
+    localStorage.setItem("lanka_mouse_sens", sensMultiplier);
+  });
+}
+setupSensitivityControl();
+
+// Renderer & Tone Mapping
 const SHADOWS = true;
 const canvas = $("c");
 const renderer = new THREE.WebGLRenderer({
@@ -182,7 +301,6 @@ const { vehicles, traffic, pedestrians, targets } = entities;
 const allVehicles = [...vehicles, ...traffic];
 const sirenCars = allVehicles.filter((v) => v.siren);
 
-// Enable shadow casting/receiving on dynamic vehicles, pedestrians & targets
 for (const v of allVehicles) {
   v.root.traverse((ch) => {
     if (ch.isMesh) {
@@ -226,6 +344,8 @@ beacon.visible = false;
 scene.add(beacon);
 
 /* ---------- Game State ---------- */
+const BASE_MOUSE_SENS = 0.0046;
+const BASE_AIM_SENS = 0.0032;
 const P = {
   x: -4,
   y: 0,
@@ -240,7 +360,7 @@ const P = {
   turnSmooth: 0,
 };
 let yaw = -Math.PI / 2,
-  pitch = 0.28,
+  pitch = 0.22,
   started = false,
   paused = true,
   locked = false,
@@ -249,7 +369,8 @@ const keys = {};
 
 let activeVehicle = null,
   aiming = false,
-  armed = false;
+  armed = false,
+  targetLocked = false;
 let ammo = 12,
   reserveAmmo = 60,
   health = 100,
@@ -325,7 +446,10 @@ addEventListener("keydown", (e) => {
   if (e.code === "KeyM" && !e.repeat) startTaxiMission();
   if (e.code === "Digit1" && !e.repeat) {
     armed = !armed;
-    player.pistol.visible = armed && !activeVehicle;
+    const showGun = armed && !activeVehicle;
+    player.pistol.visible = showGun;
+    updateCrosshairUI(showGun, aiming, targetLocked);
+    if (showGun && !locked) lockPointer();
     updateHud();
     toast(armed ? "Pistol equipped" : "Pistol holstered");
   }
@@ -343,23 +467,32 @@ addEventListener("keyup", (e) => {
 addEventListener("blur", () => {
   for (const k in keys) keys[k] = false;
 });
+
 addEventListener("mousemove", (e) => {
   if (!started || paused || !(locked || dragging)) return;
-  yaw -= e.movementX * 0.0028;
-  pitch = clamp(pitch + e.movementY * 0.0028, -0.15, 1.25);
+  const sens = (aiming ? BASE_AIM_SENS : BASE_MOUSE_SENS) * sensMultiplier;
+  yaw -= e.movementX * sens;
+  pitch = clamp(pitch + e.movementY * sens, -0.45, 1.15);
+
+  // Immediately turn character facing direction with the mouse when gun is active
+  if (armed && !activeVehicle) {
+    P.rot = yaw + Math.PI;
+    player.g.rotation.y = P.rot;
+  }
 });
+
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 canvas.addEventListener("mousedown", (e) => {
   if (paused) return;
   sfx.init();
+  if (!locked) lockPointer();
   if (e.button === 2) {
     aiming = true;
-    $("crosshair").style.display = armed && !activeVehicle ? "block" : "none";
+    updateCrosshairUI(armed && !activeVehicle, aiming, targetLocked);
     return;
   }
   if (e.button === 0) {
     dragging = true;
-    if (!locked) lockPointer();
     if (!activeVehicle) {
       if (armed) shoot();
       else punch();
@@ -370,15 +503,19 @@ addEventListener("mouseup", (e) => {
   if (e.button === 0) dragging = false;
   if (e.button === 2) {
     aiming = false;
-    $("crosshair").style.display = "none";
+    updateCrosshairUI(armed && !activeVehicle, false, targetLocked);
   }
 });
 
 function lockPointer() {
   try {
-    const r = canvas.requestPointerLock();
-    if (r && r.catch) r.catch(() => {});
-  } catch (e) {}
+    const r = canvas.requestPointerLock({ unadjustedMovement: true });
+    if (r && r.catch) r.catch(() => canvas.requestPointerLock());
+  } catch (e) {
+    try {
+      canvas.requestPointerLock();
+    } catch (err) {}
+  }
 }
 document.addEventListener("pointerlockchange", () => {
   const was = locked;
@@ -386,13 +523,13 @@ document.addEventListener("pointerlockchange", () => {
   if (was && !locked && started) {
     $("ov").querySelector("h1").textContent = "PAUSED";
     $("ovt").textContent =
-      "Game Paused. Click RESUME to jump back into Lanka Life.";
+      "Game Paused. Adjust sensitivity below or click RESUME.";
     $("go").textContent = "RESUME";
     $("ov").style.display = "flex";
     paused = true;
     dragging = false;
     aiming = false;
-    $("crosshair").style.display = "none";
+    updateCrosshairUI(false, false, false);
   }
 });
 $("go").addEventListener("click", () => {
@@ -400,6 +537,7 @@ $("go").addEventListener("click", () => {
   started = true;
   paused = false;
   $("ov").style.display = "none";
+  updateCrosshairUI(armed && !activeVehicle, aiming, targetLocked);
   updateHud();
   lockPointer();
 });
@@ -417,6 +555,7 @@ function toggleVehicle() {
     player.g.visible = true;
     player.blob.visible = true;
     player.pistol.visible = armed;
+    updateCrosshairUI(armed, aiming, targetLocked);
     toast("Exited vehicle");
     return;
   }
@@ -436,7 +575,7 @@ function toggleVehicle() {
     player.blob.visible = false;
     player.pistol.visible = false;
     aiming = false;
-    $("crosshair").style.display = "none";
+    updateCrosshairUI(false, false, false);
     P.x = best.root.position.x;
     P.z = best.root.position.z;
     const label =
@@ -571,11 +710,50 @@ function spawnTracer(start, end) {
   tracers.push({ line, life: 0.12 });
 }
 
+/* ---------- Crosshair Target Detection & Aim Point ---------- */
+const _centerNDC = new THREE.Vector2(0, 0);
+const _aimPoint = new THREE.Vector3();
+
+function getCrosshairAimPoint(checkOnly = false) {
+  raycaster.setFromCamera(_centerNDC, camera);
+  raycaster.far = 75;
+
+  const activeNpcMeshes = [];
+  for (const p of pedestrians) {
+    if (p.hp > 0 && p.g.visible) activeNpcMeshes.push(p.g);
+  }
+  const activeBoards = targets.filter((t) => t.active).map((t) => t.board);
+
+  const npcHits = raycaster.intersectObjects(activeNpcMeshes, true);
+  const boardHits = raycaster.intersectObjects(activeBoards, false);
+
+  let closest = null;
+  if (npcHits.length) closest = npcHits[0];
+  if (
+    boardHits.length &&
+    (!closest || boardHits[0].distance < closest.distance)
+  ) {
+    closest = boardHits[0];
+  }
+
+  targetLocked = !!closest;
+  if (checkOnly) return closest;
+
+  if (closest) {
+    _aimPoint.copy(closest.point);
+  } else {
+    _aimPoint
+      .copy(raycaster.ray.origin)
+      .addScaledVector(raycaster.ray.direction, 65);
+  }
+  return closest;
+}
+
 function punch() {
   if (armed || activeVehicle || punchCooldown > 0) return;
   punchCooldown = 0.38;
   sfx.punch();
-  punchAttack(scene, player, entities);
+  punchAttack(scene, player, entities, triggerHitMarker);
 }
 
 function shoot() {
@@ -589,34 +767,26 @@ function shoot() {
   sfx.shoot();
   updateHud();
 
-  // Trigger gun recoil, muzzle flash, NPC panic alert, and physical bullet in entities.js
+  P.rot = yaw + Math.PI;
+  player.g.rotation.y = P.rot;
+
   shootGun(scene, player, entities);
 
-  // Align the bullet trajectory with the crosshair when aiming
-  raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+  const closest = getCrosshairAimPoint(false);
   const start = new THREE.Vector3();
   (player.muzzleTip || player.pistol).getWorldPosition(start);
-  const end = raycaster.ray.origin
-    .clone()
-    .addScaledVector(raycaster.ray.direction, 65);
 
-  if (aiming && entities.bullets.length) {
+  if (entities.bullets.length) {
     const latestBullet = entities.bullets[entities.bullets.length - 1];
-    const dir = end.clone().sub(latestBullet.pos).normalize();
-    latestBullet.vel.copy(dir).multiplyScalar(65);
+    const dir = _aimPoint.clone().sub(latestBullet.pos).normalize();
+    latestBullet.vel.copy(dir).multiplyScalar(75);
     latestBullet.mesh.rotation.y = Math.atan2(dir.x, dir.z);
   }
 
-  // Practice range target reward check
-  const hits = raycaster.intersectObjects(
-    targets.filter((t) => t.active).map((t) => t.board),
-    false,
-  );
-  if (hits.length) {
-    end.copy(hits[0].point);
-    const obj = targets.find((t) => t.board === hits[0].object);
+  if (closest) {
+    const obj = targets.find((t) => t.board === closest.object);
     if (obj) {
-      sfx.hit();
+      triggerHitMarker(false);
       obj.hp--;
       obj.board.material.color.setHex(
         obj.hp === 2 ? 0xf59e0b : obj.hp === 1 ? 0xef4444 : 0x555555,
@@ -633,7 +803,7 @@ function shoot() {
       }
     }
   }
-  spawnTracer(start, end);
+  spawnTracer(start, _aimPoint.clone());
 }
 
 /* ---------- Player Physics ---------- */
@@ -767,8 +937,17 @@ function update(dt) {
   if (toastTimer > 0 && (toastTimer -= dt) <= 0)
     $("toast").style.display = "none";
 
-  // Update bullets, sparks, NPC damage, panic fleeing & knockdown physics
-  updateCombat(scene, entities, dt);
+  // Update hit-marker flash decay
+  if (hitMarkerTimer > 0) {
+    hitMarkerTimer = Math.max(0, hitMarkerTimer - dt);
+    if (hitmarkerEl) {
+      hitmarkerEl.style.opacity = (hitMarkerTimer / 0.2).toFixed(2);
+      if (hitMarkerTimer === 0) hitmarkerEl.style.transform = "scale(0.8)";
+    }
+  }
+
+  // Update bullets, sparks & NPC combat reactions (flashes hit-marker on bullet impact)
+  updateCombat(scene, entities, dt, triggerHitMarker);
 
   for (let i = tracers.length - 1; i >= 0; i--) {
     tracers[i].life -= dt;
@@ -790,8 +969,8 @@ function update(dt) {
 
   if (keys.KeyQ || keys.ArrowLeft) yaw += 1.9 * dt;
   if (keys.ArrowRight) yaw -= 1.9 * dt;
-  if (keys.ArrowUp) pitch = clamp(pitch - 1.2 * dt, -0.15, 1.25);
-  if (keys.ArrowDown) pitch = clamp(pitch + 1.2 * dt, -0.15, 1.25);
+  if (keys.ArrowUp) pitch = clamp(pitch - 1.2 * dt, -0.45, 1.15);
+  if (keys.ArrowDown) pitch = clamp(pitch + 1.2 * dt, -0.45, 1.15);
 
   if (
     activeVehicle &&
@@ -849,10 +1028,15 @@ function update(dt) {
     } else P.ground = false;
 
     const sp = Math.hypot(P.vx, P.vz);
-    const aimFace = aiming && armed;
     let turnRate = 0;
-    if (sp > 0.3 || aimFace) {
-      const tr = aimFace ? yaw + Math.PI : Math.atan2(P.vx, P.vz);
+
+    if (armed) {
+      const tr = yaw + Math.PI;
+      const d = Math.atan2(Math.sin(tr - P.rot), Math.cos(tr - P.rot));
+      P.rot += d;
+      turnRate = clamp((d / Math.max(dt, 1e-3)) * 0.25, -1.5, 1.5);
+    } else if (sp > 0.3) {
+      const tr = Math.atan2(P.vx, P.vz);
       const d = Math.atan2(Math.sin(tr - P.rot), Math.cos(tr - P.rot));
       const step = d * (1 - Math.exp(-14 * dt));
       P.rot += step;
@@ -864,7 +1048,7 @@ function update(dt) {
     player.animate(P.walkT, sp, P.ground, armed, aiming, {
       velY: P.vy,
       turn: P.turnSmooth,
-      lookPitch: aiming ? -pitch * 0.5 : 0,
+      lookPitch: armed ? -pitch * 0.65 : 0,
     });
     player.g.position.set(P.x, P.y, P.z);
     player.g.rotation.y = P.rot;
@@ -874,7 +1058,6 @@ function update(dt) {
 
   for (const v of traffic) updateVehicle(dt, v, false);
   for (const n of pedestrians) {
-    // Skip normal sidewalk walk when NPC is knocked out, stunned by a hit, or fleeing gunfire
     if (n.hp <= 0 || n.stun > 0 || n.panic > 0) continue;
 
     const dx = n.g.position.x - P.x,
@@ -964,15 +1147,17 @@ function update(dt) {
     $("interact").style.display = "none";
   }
 
-  const camDist = aiming
-    ? 2.3
-    : activeVehicle
-      ? activeVehicle.type === "bus"
-        ? 9.5
-        : 6.6
-      : 4.8;
-  const targetY = P.y + (activeVehicle ? 1.6 : 1.65);
-  const sideOffset = aiming ? 0.65 : 0;
+  const camDist = activeVehicle
+    ? activeVehicle.type === "bus"
+      ? 9.5
+      : 6.6
+    : aiming
+      ? 2.2
+      : armed
+        ? 3.4
+        : 4.8;
+  const targetY = P.y + (activeVehicle ? 1.6 : 1.62);
+  const sideOffset = activeVehicle ? 0 : aiming ? 0.68 : armed ? 0.48 : 0;
 
   const tx = P.x + Math.cos(yaw) * sideOffset;
   const tz = P.z - Math.sin(yaw) * sideOffset;
@@ -995,6 +1180,11 @@ function update(dt) {
   camera.position.set(cx, Math.max(0.45, cy), cz);
   camera.lookAt(tx, targetY, tz);
   sky.position.copy(camera.position);
+
+  if ((armed && !activeVehicle) || hitMarkerTimer > 0) {
+    if (armed && !activeVehicle) getCrosshairAimPoint(true);
+    updateCrosshairUI(armed && !activeVehicle, aiming, targetLocked);
+  }
 
   if (SHADOWS) {
     const sx = Math.round(P.x / 8) * 8,
