@@ -348,6 +348,10 @@ export function updateCombat(scene, entities, dt, onHit = null) {
         }
       }
     }
+    if (p.g.position.y < 0) {
+      p.g.position.y = 0;
+      p.vel.y = 0;
+    }
 
     // Dead / Knocked out state
     if (p.hp <= 0) {
@@ -375,8 +379,9 @@ export function updateCombat(scene, entities, dt, onHit = null) {
     p.g.rotation.x = THREE.MathUtils.lerp(
       p.g.rotation.x,
       0,
-      Math.min(1, dt * 8),
+      Math.min(1, dt * 10),
     );
+    if (p.vel.y === 0) p.g.position.y = 0;
 
     // Stunned flinch
     if (p.stun > 0) {
@@ -388,6 +393,9 @@ export function updateCombat(scene, entities, dt, onHit = null) {
     // Panic flee behavior when shots are fired nearby
     if (p.panic > 0) {
       p.panic -= dt;
+      // [ADDED] Keep panicking NPC upright and planted at ground level (y = 0)
+      p.g.position.y = 0;
+      p.g.rotation.x = 0;
       const runSpeed = 4.6;
       p.g.position.x = Math.max(
         BOUNDS.x0 + 10,
