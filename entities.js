@@ -1,53 +1,26 @@
 // entities.js — Player, optimized Sri Lankan vehicles (merged meshes), traffic & pedestrians
-import { merge, box, part, solidMat, BOUNDS } from './world.js';
+import { merge, box, solidMat, BOUNDS } from './world.js';
+import { buildHuman, animateHuman, randomOutfit, PLAYER_OUTFIT } from './Characters.js';
+export { animateHuman };
 const THREE = window.THREE;
 
 export function createPlayer(scene) {
-  const g = new THREE.Group(), skin = 0xb07a52;
-  const add = (par, geo, c, x, y, z) => {
-    const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: c }));
-    m.position.set(x, y, z);
-    par.add(m);
-    return m;
-  };
-  const B = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+  const h = buildHuman(PLAYER_OUTFIT, true);
+  const g = h.g;
 
-  const legs = [-1, 1].map(s => {
-    const p = new THREE.Group();
-    p.position.set(s * 0.16, 0.9, 0);
-    g.add(p);
-    add(p, B(0.28, 0.5, 0.3), 0x2b3a67, 0, -0.25, 0);
-    add(p, B(0.22, 0.3, 0.26), skin, 0, -0.65, 0);
-    add(p, B(0.26, 0.1, 0.38), 0x222222, 0, -0.85, 0.05);
-    return p;
-  });
-
-  const arms = [-1, 1].map(s => {
-    const p = new THREE.Group();
-    p.position.set(s * 0.41, 1.55, 0);
-    g.add(p);
-    add(p, B(0.2, 0.32, 0.24), 0xf2f2f2, 0, -0.16, 0);
-    add(p, B(0.17, 0.4, 0.2), skin, 0, -0.52, 0);
-    return p;
-  });
-
-  add(g, B(0.62, 0.72, 0.34), 0xf2f2f2, 0, 1.26, 0);
-  add(g, new THREE.SphereGeometry(0.23, 8, 6), skin, 0, 1.86, 0);
-  add(g, new THREE.SphereGeometry(0.25, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2), 0x1a1a1a, 0, 1.9, -0.02);
-  add(g, B(0.05, 0.05, 0.04), 0x111111, -0.08, 1.88, 0.22);
-  add(g, B(0.05, 0.05, 0.04), 0x111111, 0.08, 1.88, 0.22);
-
+  // pistol lives in the gun hand (forearm of the +x arm) so it follows the arm pose
   const pistol = new THREE.Group();
   const gunMat = new THREE.MeshLambertMaterial({ color: 0x272a30 });
-  const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.48), gunMat);
-  barrel.position.set(0, 0, 0.12);
+  const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.1, 0.4), gunMat);
+  barrel.position.set(0, 0.02, 0.1);
   pistol.add(barrel);
-  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.26, 0.14), gunMat);
-  grip.position.set(0, -0.15, -0.02);
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.22, 0.12), gunMat);
+  grip.position.set(0, -0.1, -0.02);
   pistol.add(grip);
-  pistol.position.set(0.42, 1.38, 0.24);
+  pistol.position.set(0, -0.3, 0.02);
+  pistol.rotation.x = Math.PI / 2;
   pistol.visible = false;
-  g.add(pistol);
+  h.elbows[1].add(pistol);
 
   g.scale.setScalar(0.9);
   scene.add(g);
@@ -59,7 +32,10 @@ export function createPlayer(scene) {
   blob.position.y = 0.14;
   scene.add(blob);
 
-  return { g, legs, arms, pistol, blob };
+  return {
+    g, legs: h.legs, arms: h.arms, pistol, blob, h,
+    animate: (t, speed, ground, armed, aiming) => animateHuman(h, t, speed, ground, { armed, aiming })
+  };
 }
 
 const WHEEL_MAT = new THREE.MeshLambertMaterial({ color: 0x202428 });
@@ -146,30 +122,24 @@ export function spawnWorldEntities(scene) {
   addDriveable('tuk', -230, 205.5, 0x139a5b);   // Galle
   addDriveable('car', 160, 205.5, 0x2a6fb5);    // Mirissa
 
-  // Pedestrians (body = 1 merged mesh, legs share geometry)
-  const shirtColors = [0xe3b23c, 0x3f83c7, 0xc9553f, 0x4f9d69, 0xd9649a, 0x8b78d6];
-  const skinGeo = new THREE.SphereGeometry(0.19, 7, 6);
-  const legGeo = new THREE.BoxGeometry(0.17, 0.58, 0.18);
-  const pantsMat = new THREE.MeshLambertMaterial({ color: 0x303d55 });
-  for (let i = 0; i < 20; i++) {
-    const g = new THREE.Group();
-    g.add(new THREE.Mesh(merge([
-      box(0.48, 0.72, 0.28, shirtColors[i % shirtColors.length], 0, 1.18, 0),
-      part(skinGeo, 0x9b6847, 0, 1.72, 0)
-    ]), solidMat));
-    const legs = [];
-    for (const side of [-1, 1]) {
-      const leg = new THREE.Mesh(legGeo, pantsMat);
-      leg.position.set(side * 0.13, 0.48, 0);
-      g.add(leg);
-      legs.push(leg);
-    }
-    const x = -340 + i * 34;
-    const z = i % 2 ? 7.6 : -7.6;
-    g.position.set(x, 0, z);
-    scene.add(g);
-    pedestrians.push({ g, dir: i % 2 ? 1 : -1, phase: Math.random() * 6.28, legs, minX: BOUNDS.x0 + 14, maxX: BOUNDS.x1 - 14 });
-  }
+  // Pedestrians: rigged low-poly humans with Sri Lankan outfits (sarong, saree, school uniform, office, tuk driver...)
+  const addPed = (x, z, minX, maxX, beach) => {
+    const o = randomOutfit(beach);
+    const h = buildHuman(o, false);
+    h.g.scale.setScalar(0.9 * (o.scale || 1));
+    h.g.position.set(x, 0, z);
+    scene.add(h.g);
+    const dir = Math.random() < 0.5 ? 1 : -1;
+    pedestrians.push({
+      g: h.g, h, legs: h.legs, dir, phase: Math.random() * 6.28, minX, maxX,
+      speed: 0.9 + Math.random() * 0.7, wait: Math.random() * 6, yaw: dir > 0 ? Math.PI / 2 : -Math.PI / 2
+    });
+  };
+  for (let i = 0; i < 20; i++) addPed(-340 + i * 34, i % 2 ? 7.6 : -7.6, BOUNDS.x0 + 14, BOUNDS.x1 - 14);   // main road
+  for (let i = 0; i < 6; i++) addPed(190 + i * 28, i % 2 ? 7.6 : -7.6, 190, BOUNDS.x1 - 14);              // Colombo
+  for (let i = 0; i < 7; i++) addPed(-110 + i * 40, i % 2 ? -254.4 : -269.6, -125, 185);                 // Kandy road
+  for (let i = 0; i < 6; i++) addPed(-320 + i * 120, i % 2 ? 207.6 : 192.4, BOUNDS.x0 + 14, BOUNDS.x1 - 14); // coastal road
+  for (let i = 0; i < 8; i++) addPed(80 + i * 30, 268 + (i % 3) * 8, 66, 336, true);                        // Mirissa beach
 
   // AI traffic (main road + coastal road)
   const makeTraffic = (type, x, z, dir, color) => {
