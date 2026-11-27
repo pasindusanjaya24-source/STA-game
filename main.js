@@ -1,6 +1,6 @@
 // main.js — Core Engine, Shadows, Sound FX, Missions, Radar Minimap, Physics & Loop
 import { buildWorld, clamp, PAL } from './world.js';
-import { createPlayer, spawnWorldEntities } from './entities.js';
+import { createPlayer, spawnWorldEntities, animateHuman } from './entities.js';
 
 const THREE = window.THREE;
 const $ = id => document.getElementById(id);
@@ -382,7 +382,9 @@ function shoot() {
   updateHud();
 
   raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-  const start = new THREE.Vector3(P.x, P.y + 1.4, P.z);
+  const start = new THREE.Vector3();
+  player.pistol.getWorldPosition(start);
+  start.addScaledVector(raycaster.ray.direction, 0.45);
   const end = raycaster.ray.origin.clone().addScaledVector(raycaster.ray.direction, 65);
 
   const hits = raycaster.intersectObjects(targets.filter(t => t.active).map(t => t.board), false);
@@ -545,21 +547,15 @@ function update(dt) {
     if (P.y <= fl) { P.y = fl; P.vy = 0; P.ground = true; } else P.ground = false;
 
     const sp = Math.hypot(P.vx, P.vz);
-    if (sp > 0.3) {
-      const tr = Math.atan2(P.vx, P.vz);
+    const aimFace = aiming && armed;
+    if (sp > 0.3 || aimFace) {
+      const tr = aimFace ? yaw + Math.PI : Math.atan2(P.vx, P.vz);
       const d = Math.atan2(Math.sin(tr - P.rot), Math.cos(tr - P.rot));
       P.rot += d * (1 - Math.exp(-14 * dt));
     }
 
-    if (P.ground) {
-      P.walkT += dt * sp * 1.7;
-      const sw = Math.sin(P.walkT) * Math.min(1, sp / 4) * 0.9;
-      player.legs[0].rotation.x = sw; player.legs[1].rotation.x = -sw;
-      player.arms[0].rotation.x = -sw; player.arms[1].rotation.x = sw;
-    } else {
-      player.legs[0].rotation.x = 0.5; player.legs[1].rotation.x = -0.3;
-      player.arms[0].rotation.x = player.arms[1].rotation.x = -2.4;
-    }
+    if (P.ground) P.walkT += dt * sp * 1.7;
+    player.animate(P.walkT, sp, P.ground, armed, aiming);
     player.g.position.set(P.x, P.y, P.z);
     player.g.rotation.y = P.rot;
     player.blob.position.set(P.x, 0.14, P.z);
@@ -568,16 +564,24 @@ function update(dt) {
 
   for (const v of traffic) updateVehicle(dt, v, false);
   for (const n of pedestrians) {
-    const distToPlayer = Math.hypot(n.g.position.x - P.x, n.g.position.z - P.z);
-    const speedMult = (keys.KeyH && distToPlayer < 12) ? 2.8 : 1.0;
+    const dx = n.g.position.x - P.x, dz = n.g.position.z - P.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > 220) continue;                       // far away: no movement/animation (saves CPU)
+    const scared = keys.KeyH && dist < 12;
+    n.wait -= dt;
+    if (n.wait <= 0 && !scared && Math.random() < dt * 0.05) n.wait = 2 + Math.random() * 3;   // stop and look around
+    const idle = n.wait > 0 && !scared;
+    const sp = idle ? 0 : n.speed * (scared ? 2.8 : 1);
 
-    n.g.position.x += n.dir * 1.15 * speedMult * dt;
+    n.g.position.x += n.dir * sp * dt;
     if (n.g.position.x > n.maxX) { n.g.position.x = n.maxX; n.dir = -1; }
     if (n.g.position.x < n.minX) { n.g.position.x = n.minX; n.dir = 1; }
-    n.g.rotation.y = n.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
-    n.phase += dt * 5.5 * speedMult;
-    const sw = Math.sin(n.phase) * 0.6;
-    n.legs[0].rotation.x = sw; n.legs[1].rotation.x = -sw;
+
+    const want = idle ? (dist < 9 ? Math.atan2(-dx, -dz) : 0) : (n.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
+    n.yaw += Math.atan2(Math.sin(want - n.yaw), Math.cos(want - n.yaw)) * (1 - Math.exp(-8 * dt));
+    n.g.rotation.y = n.yaw;
+    n.phase += dt * (3 + sp * 2.2);
+    animateHuman(n.h, n.phase, sp, true);
   }
 
   if (mission) {
