@@ -863,6 +863,7 @@ function floorAt() {
 function collideNPC(n) {
   const r = 0.38;
   const pos = n.g.position;
+  if (pos.y < 0) pos.y = 0;
   for (const c of nearCols(pos.x, pos.z, 2)) {
     if (pos.y >= c.h - 0.1) continue;
     if (
