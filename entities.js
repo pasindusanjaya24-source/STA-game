@@ -176,15 +176,16 @@ function alertNearbyNPCs(pedestrians, shooterPos, radius = 32) {
   }
 }
 
+// [CHANGED] Headshot deals instant 100 damage (1-shot down); body shots & punches deal gradual damage
 function damageNPC(scene, p, amount, pushX, pushZ, isHeadshot = false) {
   if (p.hp <= 0) return;
-  const dmg = isHeadshot ? amount * 2 : amount;
+  const dmg = isHeadshot ? 100 : amount;
   p.hp = Math.max(0, p.hp - dmg);
   p.stun = 0.45;
   p.flashTimer = 0.16;
   p.vel.x += pushX;
   p.vel.z += pushZ;
-  p.vel.y = isHeadshot ? 3.4 : 2.2;
+  p.vel.y = isHeadshot ? 3.4 : 1.4;
 
   // Flash NPC meshes red on hit
   p.g.traverse((ch) => {
@@ -195,7 +196,7 @@ function damageNPC(scene, p, amount, pushX, pushZ, isHeadshot = false) {
   });
 
   if (p.hp <= 0) {
-    p.downTimer = 8.0; // stays down for 8 seconds before respawning/recovering
+    p.downTimer = 8.0; // stays down for 8 seconds before recovering
   }
 }
 
@@ -244,7 +245,7 @@ export function punchAttack(scene, player, entities, onHit = null) {
     if (dist > 2.1 || dist < 0.01) continue;
     const dot = (dx * fwdX + dz * fwdZ) / dist;
     if (dot > 0.45) {
-      damageNPC(scene, p, 35, fwdX * 6.0, fwdZ * 6.0, false);
+      damageNPC(scene, p, 20, fwdX * 6.0, fwdZ * 6.0, false);
       entities.sparks.push(
         ...spawnHitSparks(scene, p.g.position.clone().setY(1.2), true),
       );
@@ -273,7 +274,7 @@ export function updateCombat(scene, entities, dt, onHit = null) {
       const dx = b.pos.x - p.g.position.x;
       const dz = b.pos.z - p.g.position.z;
       if (dx * dx + dz * dz < 0.34 && b.pos.y >= 0.1 && b.pos.y <= 1.85) {
-        const isHeadshot = b.pos.y >= 1.42;
+        const isHeadshot = b.pos.y >= 1.5;
         const dir = b.vel.clone().normalize();
         damageNPC(scene, p, 50, dir.x * 7.5, dir.z * 7.5, isHeadshot);
         entities.sparks.push(...spawnHitSparks(scene, b.pos, true));
@@ -347,6 +348,10 @@ export function updateCombat(scene, entities, dt, onHit = null) {
         }
       }
     }
+    if (p.g.position.y < 0) {
+      p.g.position.y = 0;
+      p.vel.y = 0;
+    }
 
     // Dead / Knocked out state
     if (p.hp <= 0) {
@@ -374,8 +379,9 @@ export function updateCombat(scene, entities, dt, onHit = null) {
     p.g.rotation.x = THREE.MathUtils.lerp(
       p.g.rotation.x,
       0,
-      Math.min(1, dt * 8),
+      Math.min(1, dt * 10),
     );
+    if (p.vel.y === 0) p.g.position.y = 0;
 
     // Stunned flinch
     if (p.stun > 0) {
@@ -387,6 +393,9 @@ export function updateCombat(scene, entities, dt, onHit = null) {
     // Panic flee behavior when shots are fired nearby
     if (p.panic > 0) {
       p.panic -= dt;
+      // [ADDED] Keep panicking NPC upright and planted at ground level (y = 0)
+      p.g.position.y = 0;
+      p.g.rotation.x = 0;
       const runSpeed = 4.6;
       p.g.position.x = Math.max(
         BOUNDS.x0 + 10,
@@ -651,8 +660,9 @@ export function spawnWorldEntities(scene) {
   addDriveable("car", 160, 205.5, 0x2a6fb5);
 
   // NPCs built with detail=true so their knees, elbows, and heads react to gunfire & hits
-  const addPed = (x, z, minX, maxX, beach) => {
-    const o = randomOutfit(beach);
+  // [CHANGED] Spawn NPCs with zone-specific dress codes ("normal", "beach", "temple")
+  const addPed = (x, z, minX, maxX, zone = "normal") => {
+    const o = randomOutfit(zone);
     const h = buildHuman(o, true);
     h.g.scale.setScalar(0.92 * (o.scale || 1));
     h.g.position.set(x, 0, z);
@@ -680,20 +690,32 @@ export function spawnWorldEntities(scene) {
     });
   };
   for (let i = 0; i < 20; i++)
-    addPed(-340 + i * 34, i % 2 ? 7.6 : -7.6, BOUNDS.x0 + 14, BOUNDS.x1 - 14);
+    addPed(
+      -340 + i * 34,
+      i % 2 ? 7.6 : -7.6,
+      BOUNDS.x0 + 14,
+      BOUNDS.x1 - 14,
+      "normal",
+    );
   for (let i = 0; i < 6; i++)
-    addPed(190 + i * 28, i % 2 ? 7.6 : -7.6, 190, BOUNDS.x1 - 14);
+    addPed(190 + i * 28, i % 2 ? 7.6 : -7.6, 190, BOUNDS.x1 - 14, "normal");
   for (let i = 0; i < 7; i++)
-    addPed(-110 + i * 40, i % 2 ? -254.4 : -269.6, -125, 185);
+    addPed(-110 + i * 40, i % 2 ? -254.4 : -269.6, -125, 185, "normal");
   for (let i = 0; i < 6; i++)
     addPed(
       -320 + i * 120,
       i % 2 ? 207.6 : 192.4,
       BOUNDS.x0 + 14,
       BOUNDS.x1 - 14,
+      "normal",
     );
-  for (let i = 0; i < 8; i++)
-    addPed(80 + i * 30, 268 + (i % 3) * 8, 66, 336, true);
+  for (let i = 0; i < 10; i++)
+    addPed(75 + i * 26, 266 + (i % 3) * 8, 66, 336, "beach");
+  // [ADDED] White-dressed temple visitors at Sacred Stupa (-55, -34) and Temple of the Tooth (80, -280)
+  for (let i = 0; i < 5; i++)
+    addPed(-64 + i * 4.5, -33 + (i % 2) * 2, -68, -42, "temple");
+  for (let i = 0; i < 6; i++)
+    addPed(62 + i * 7, -280 + (i % 2) * 3, 56, 104, "temple");
 
   const makeTraffic = (type, x, z, dir, color) => {
     const v = makeVehicle(scene, type, color);
